@@ -280,6 +280,14 @@ func (svc *imageService) ListImages(systemContext *types.SystemContext, filter s
 		newImageCache := make(imageCache, len(images))
 		for i := range images {
 			image := &images[i]
+			// determines if an images is intermediate, and if it is, don't return it
+			isIntermediate, err := svc.isIntermediate(image)
+			if err != nil {
+				return nil, err
+			}
+			if isIntermediate {
+				continue
+			}
 			ref, err := istorage.Transport.ParseStoreReference(svc.store, "@"+image.ID)
 			if err != nil {
 				return nil, err
@@ -296,6 +304,30 @@ func (svc *imageService) ListImages(systemContext *types.SystemContext, filter s
 		svc.imageCacheLock.Unlock()
 	}
 	return results, nil
+}
+
+// determines if an images is intermediate
+func (svc *imageService) isIntermediate(image *storage.Image) (bool, error) {
+	storageLayers, err := svc.GetStore().Layers()
+	if err != nil {
+		return false, err
+	}
+
+	if len(image.Names) == 0 && !layerIsLeaf(storageLayers, image.TopLayer) {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// helper function for isIntermediate to determine if a layer is a leaf
+func layerIsLeaf(storageLayers []storage.Layer, layer string) bool {
+	for i := 0; i < len(storageLayers); i++ {
+		if storageLayers[i].Parent == layer {
+			return false
+		}
+	}
+	return true
 }
 
 func (svc *imageService) ImageStatus(systemContext *types.SystemContext, nameOrID string) (*ImageResult, error) {

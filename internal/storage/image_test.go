@@ -488,8 +488,10 @@ var _ = t.Describe("Image", func() {
 						{ID: testSHA256, Names: []string{"a", "b", "c@sha256:" + testSHA256}},
 						{ID: testSHA256}},
 					nil),
+				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
 				mockParseStoreReference(storeMock, "@"+testSHA256),
 				mockLoop(),
+				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
 				mockParseStoreReference(storeMock, "@"+testSHA256),
 				mockLoop(),
 			)
@@ -590,6 +592,7 @@ var _ = t.Describe("Image", func() {
 			gomock.InOrder(
 				storeMock.EXPECT().Images().Return(
 					[]cs.Image{{ID: ""}}, nil),
+				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
 			)
 
 			// When
@@ -605,6 +608,7 @@ var _ = t.Describe("Image", func() {
 			inOrder(
 				storeMock.EXPECT().Images().Return(
 					[]cs.Image{{ID: testSHA256}}, nil),
+				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
 				mockParseStoreReference(storeMock, "@"+testSHA256),
 				storeMock.EXPECT().Image(gomock.Any()).
 					Return(nil, t.TestError),
