@@ -622,6 +622,41 @@ var _ = t.Describe("Image", func() {
 			Expect(res).To(BeNil())
 		})
 
+		It("should succeed to not list intermediate images", func() {
+			// Given
+			mockLoop := func() mockSequence {
+				return inOrder(
+					// buildImageCacheItem:
+					mockNewImage(storeMock, testSHA256, testSHA256),
+					mockNewLayer(storeMock, testSHA256, testSHA256),
+					// makeRepoDigests:
+					storeMock.EXPECT().ImageBigDataDigest(testSHA256, gomock.Any()).
+						Return(digest.Digest(""), nil),
+				)
+			}
+			inOrder(
+				storeMock.EXPECT().Images().Return(
+					[]cs.Image{
+						{ID: testSHA256, Names: []string{"a", "b", "c@sha256:" + testSHA256}},
+						{ID: testSHA256}},
+					nil),
+				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
+				mockParseStoreReference(storeMock, "@"+testSHA256),
+				mockLoop(),
+				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
+				mockParseStoreReference(storeMock, "@"+testSHA256),
+				mockLoop(),
+			)
+
+			// When
+			res, err := sut.ListImages(&types.SystemContext{}, "")
+
+			// Then
+			Expect(err).To(BeNil())
+			Expect(len(res)).To(Equal(2))
+
+		})
+
 	})
 
 	t.Describe("PrepareImage", func() {
