@@ -105,12 +105,6 @@ func mockResolveImage(storeMock *containerstoragemock.MockStore, expectedImageNa
 	)
 }
 
-func mockResolveLayer(storeMock *containerstoragemock.MockStore, expectedLayerNameOrID, resolvedLayerID string) mockSequence {
-	return inOrder(
-		storeMock.EXPECT().Layer(expectedLayerNameOrID).Return(&cstorage.Layer{ID: expectedLayerNameOrID}, nil),
-	)
-}
-
 // containers/image/storage.storageImageSource.getSize
 func mockStorageImageSourceGetSize(storeMock *containerstoragemock.MockStore) mockSequence {
 	return inOrder(
@@ -129,11 +123,5 @@ func mockNewImage(storeMock *containerstoragemock.MockStore, expectedImageName, 
 		storeMock.EXPECT().ImageBigData(gomock.Any(), gomock.Any()).
 			Return(testManifest, nil),
 		mockStorageImageSourceGetSize(storeMock),
-	)
-}
-
-func mockNewLayer(storeMock *containerstoragemock.MockStore, expectedLayerName, resolvedLayerID string) mockSequence {
-	return inOrder(
-		mockResolveLayer(storeMock, expectedLayerName, resolvedLayerID),
 	)
 }

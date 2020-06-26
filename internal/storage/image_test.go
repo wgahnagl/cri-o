@@ -624,7 +624,6 @@ var _ = t.Describe("Image", func() {
 			// Given
 			mockLoop := func() mockSequence {
 				return inOrder(
-					mockNewLayer(storeMock, testSHA256, testSHA256),
 					// buildImageCacheItem:
 					mockNewImage(storeMock, testSHA256, testSHA256),
 					// makeRepoDigests:
@@ -638,7 +637,8 @@ var _ = t.Describe("Image", func() {
 						{ID: testSHA256, Names: []string{"a", "b", "c@sha256:" + testSHA256}},
 						{ID: testSHA256}},
 					nil),
-				storeMock.EXPECT().Layers().Return([]cs.Layer{{ID: testSHA256, Parent: testSHA256}}, nil),
+				// creates a layer with the parent of one of the images just returned
+				storeMock.EXPECT().Layers().Return([]cs.Layer{{Parent: testSHA256}}, nil),
 				mockParseStoreReference(storeMock, "@"+testSHA256),
 				mockLoop(),
 				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
