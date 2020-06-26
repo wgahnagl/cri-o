@@ -475,6 +475,8 @@ var _ = t.Describe("Image", func() {
 			// Given
 			mockLoop := func() mockSequence {
 				return inOrder(
+					storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
+					mockParseStoreReference(storeMock, "@"+testSHA256),
 					// buildImageCacheItem:
 					mockNewImage(storeMock, testSHA256, testSHA256),
 					// makeRepoDigests:
@@ -488,11 +490,7 @@ var _ = t.Describe("Image", func() {
 						{ID: testSHA256, Names: []string{"a", "b", "c@sha256:" + testSHA256}},
 						{ID: testSHA256}},
 					nil),
-				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
-				mockParseStoreReference(storeMock, "@"+testSHA256),
 				mockLoop(),
-				storeMock.EXPECT().Layers().Return([]cs.Layer{}, nil),
-				mockParseStoreReference(storeMock, "@"+testSHA256),
 				mockLoop(),
 			)
 
@@ -626,8 +624,8 @@ var _ = t.Describe("Image", func() {
 			// Given
 			mockLoop := func() mockSequence {
 				return inOrder(
-					// buildImageCacheItem:
 					mockNewLayer(storeMock, testSHA256, testSHA256),
+					// buildImageCacheItem:
 					mockNewImage(storeMock, testSHA256, testSHA256),
 					// makeRepoDigests:
 					storeMock.EXPECT().ImageBigDataDigest(testSHA256, gomock.Any()).
@@ -661,6 +659,7 @@ var _ = t.Describe("Image", func() {
 
 	t.Describe("PrepareImage", func() {
 		It("should succeed with testimage", func() {
+
 			// Given
 			const imageName = "tarball:../../test/testdata/image.tar"
 
