@@ -37,6 +37,36 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/types"
 )
 
+// sets the name of the sandbox pod and container
+func (s *Server) setNames(sbox sandbox.Sandbox, ctx context.Context) (err error) {
+	if err = sbox.SetNameAndID(); err != nil {
+		return errors.Wrap(err, "setting pod sandbox name and id")
+	}
+
+	if _, err = s.ReservePodName(sbox.ID(), sbox.Name()); err != nil {
+		return errors.Wrap(err, "reserving pod sandbox name")
+	}
+
+	defer func() {
+		if err != nil {
+			log.Infof(ctx, "runSandbox: releasing pod sandbox name: %s", sbox.Name())
+			s.ReleasePodName(sbox.Name())
+		}
+	}()
+
+	containerName, err := s.ReserveSandboxContainerIDAndName(sbox.Config())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			log.Infof(ctx, "runSandbox: releasing container name: %s", containerName)
+			s.ReleaseContainerName(containerName)
+		}
+	}()
+	return nil
+}
+
 func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest) (resp *pb.RunPodSandboxResponse, err error) {
 	s.updateLock.RLock()
 	defer s.updateLock.RUnlock()
@@ -55,31 +85,11 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	namespace := sbox.Config().GetMetadata().GetNamespace()
 	attempt := sbox.Config().GetMetadata().GetAttempt()
 
-	if err = sbox.SetNameAndID(); err != nil {
-		return nil, errors.Wrap(err, "setting pod sandbox name and id")
-	}
-
-	if _, err = s.ReservePodName(sbox.ID(), sbox.Name()); err != nil {
-		return nil, errors.Wrap(err, "reserving pod sandbox name")
-	}
-
-	defer func() {
-		if err != nil {
-			log.Infof(ctx, "runSandbox: releasing pod sandbox name: %s", sbox.Name())
-			s.ReleasePodName(sbox.Name())
-		}
-	}()
-
-	containerName, err := s.ReserveSandboxContainerIDAndName(sbox.Config())
+	//sets the names of the sandbox and container
+	err = s.setNames(sbox, ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "failed to set name of sandbox")
 	}
-	defer func() {
-		if err != nil {
-			log.Infof(ctx, "runSandbox: releasing container name: %s", containerName)
-			s.ReleaseContainerName(containerName)
-		}
-	}()
 
 	var labelOptions []string
 	securityContext := sbox.Config().GetLinux().GetSecurityContext()
