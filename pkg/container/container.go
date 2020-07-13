@@ -203,7 +203,7 @@ func (c *container) LogPath(sboxLogDir string) (string, error) {
 	}
 
 	// Handle https://issues.k8s.io/44043
-	if err := utils.EnsureSaneLogPath(logPath); err != nil {
+	if err := utils.EnsureValidLogPath(logPath); err != nil {
 		return "", err
 	}
 

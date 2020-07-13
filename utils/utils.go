@@ -93,7 +93,7 @@ func (DetachError) Error() string {
 
 // CopyDetachable is similar to io.Copy but support a detach key sequence to break out.
 func CopyDetachable(dst io.Writer, src io.Reader, keys []byte) (written int64, err error) {
-	// Sanity check interfaces
+	// check interfaces
 	if dst == nil || src == nil {
 		return 0, fmt.Errorf("src/dst reader/writer nil")
 	}
@@ -294,11 +294,11 @@ func Int32Ptr(i int32) *int32 {
 	return &i
 }
 
-// EnsureSaneLogPath is a hack to fix https://issues.k8s.io/44043 which causes
+// EnsureValidLogPath is a hack to fix https://issues.k8s.io/44043 which causes
 // logPath to be a broken symlink to some magical Docker path. Ideally we
 // wouldn't have to deal with this, but until that issue is fixed we have to
 // remove the path if it's a broken symlink.
-func EnsureSaneLogPath(logPath string) error {
+func EnsureValidLogPath(logPath string) error {
 	// If the path exists but the resolved path does not, then we have a broken
 	// symlink and we need to remove it.
 	fi, err := os.Lstat(logPath)

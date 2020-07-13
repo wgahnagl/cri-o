@@ -22,6 +22,7 @@ import (
 	libsandbox "github.com/cri-o/cri-o/internal/lib/sandbox"
 	"github.com/cri-o/cri-o/internal/log"
 	oci "github.com/cri-o/cri-o/internal/oci"
+	criostore "github.com/cri-o/cri-o/internal/storage"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 	"github.com/cri-o/cri-o/pkg/sandbox"
 	"github.com/cri-o/cri-o/utils"
@@ -67,7 +68,112 @@ func (s *Server) setNames(sbox sandbox.Sandbox, ctx context.Context) (err error)
 	return nil
 }
 
+// generates spec
+func (s *Server) generateSpec() (g generate.Generator, err error) {
+	g, err = generate.New("linux")
+	if err != nil {
+		return g, err
+	}
+	g.HostSpecific = true
+	g.ClearProcessRlimits()
+
+	for _, u := range s.config.Ulimits() {
+		g.AddProcessRlimits(u.Name, u.Hard, u.Soft)
+	}
+	return g, nil
+}
+
+// set sandbox defaults
+func (s *Server) setSandboxDefaults(g generate.Generator, podContainer criostore.ContainerInfo) (err error) {
+	g.SetRootReadonly(true)
+
+	pauseCommand, err := PauseCommand(s.Config(), podContainer.Config)
+	if err != nil {
+		return err
+	}
+	g.SetProcessArgs(pauseCommand)
+	return nil
+}
+
+// sets DNS options
+func (s *Server) setDNSOptions(sbox sandbox.Sandbox, podContainer criostore.ContainerInfo, pathsToChown []string, g generate.Generator, mountLabel string, resolvPath string) (err error) {
+	if sbox.Config().GetDnsConfig() != nil {
+		dnsServers := sbox.Config().GetDnsConfig().Servers
+		dnsSearches := sbox.Config().GetDnsConfig().Searches
+		dnsOptions := sbox.Config().GetDnsConfig().Options
+		resolvPath = fmt.Sprintf("%s/resolv.conf", podContainer.RunDir)
+		err = parseDNSOptions(dnsServers, dnsSearches, dnsOptions, resolvPath)
+		if err != nil {
+			err1 := removeFile(resolvPath)
+			if err1 != nil {
+				err = err1
+				return fmt.Errorf("%v; failed to remove %s: %v", err, resolvPath, err1)
+			}
+			return err
+		}
+		if err := label.Relabel(resolvPath, mountLabel, false); err != nil && errors.Cause(err) != unix.ENOTSUP {
+			return err
+		}
+		mnt := spec.Mount{
+			Type:        "bind",
+			Source:      resolvPath,
+			Destination: "/etc/resolv.conf",
+			Options:     []string{"ro", "bind", "nodev", "nosuid", "noexec"},
+		}
+		pathsToChown = append(pathsToChown, resolvPath)
+		g.AddMount(mnt)
+	}
+	return nil
+}
+
+// sets log directory
+func (s *Server) setLogDir(logDir string, sbox sandbox.Sandbox) (err error) {
+	// set log directory
+	if logDir == "" {
+		logDir = filepath.Join(s.config.LogDir, sbox.ID())
+	}
+	if err := os.MkdirAll(logDir, 0700); err != nil {
+		return err
+	}
+
+	// This should always be absolute from k8s.
+	if !filepath.IsAbs(logDir) {
+		return fmt.Errorf("requested logDir for sbox id %s is a relative path: %s", sbox.ID(), logDir)
+	}
+	return nil
+}
+
+// creates shm mount
+func (s *Server) createShmMount(sbox sandbox.Sandbox, hostIPC bool, shmPath string, podContainer criostore.ContainerInfo, pathsToChown []string, mountLabel string, ctx context.Context) (mnt spec.Mount, err error) {
+	if hostIPC {
+		shmPath = libsandbox.DevShmPath
+	} else {
+		shmPath, err = setupShm(podContainer.RunDir, mountLabel)
+		if err != nil {
+			return spec.Mount{}, err
+		}
+		pathsToChown = append(pathsToChown, shmPath)
+		defer func() {
+			if err != nil {
+				log.Infof(ctx, "runSandbox: unmounting shmPath for sandbox %s", sbox.ID())
+				if err2 := unix.Unmount(shmPath, unix.MNT_DETACH); err2 != nil {
+					log.Warnf(ctx, "failed to unmount shm for pod: %v", err2)
+				}
+			}
+		}()
+	}
+
+	mnt = spec.Mount{
+		Type:        "bind",
+		Source:      shmPath,
+		Destination: libsandbox.DevShmPath,
+		Options:     []string{"rw", "bind"},
+	}
+	return mnt, nil
+}
+
 func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest) (resp *pb.RunPodSandboxResponse, err error) {
+
 	s.updateLock.RLock()
 	defer s.updateLock.RUnlock()
 
@@ -76,29 +182,60 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		return nil, errors.Wrap(err, "setting sandbox config")
 	}
 
-	pathsToChown := []string{}
-
-	// we need to fill in the container name, as it is not present in the request. Luckily, it is a constant.
-	log.Infof(ctx, "Running pod sandbox: %s%s", translateLabelsToDescription(sbox.Config().GetLabels()), leaky.PodInfraContainerName)
-
+	// sandbox constants
 	kubeName := sbox.Config().GetMetadata().GetName()
 	namespace := sbox.Config().GetMetadata().GetNamespace()
 	attempt := sbox.Config().GetMetadata().GetAttempt()
+	securityContext := sbox.Config().GetLinux().GetSecurityContext()
+	selinuxConfig := securityContext.GetSelinuxOptions()
+	privileged := s.privilegedSandbox(req)
+	metadata := sbox.Config().GetMetadata()
+	labels := sbox.Config().GetLabels()
+	kubeAnnotations := sbox.Config().GetAnnotations()
+	logDir := sbox.Config().GetLogDirectory()
+	logPath := filepath.Join(logDir, sbox.ID()+".log")
+	capabilities := &pb.Capability{}
+	hostIPC := securityContext.GetNamespaceOptions().GetIpc() == pb.NamespaceMode_NODE
+	hostPID := securityContext.GetNamespaceOptions().GetPid() == pb.NamespaceMode_NODE
+	hostNetwork := securityContext.GetNamespaceOptions().GetNetwork() == pb.NamespaceMode_NODE
+
+	pathsToChown := []string{}
+
+	var labelOptions []string
+	var resolvPath string
+	var shmPath string
+
+	// marshal metadata json
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	// marshal labels json
+	labelsJSON, err := json.Marshal(labels)
+	if err != nil {
+		return nil, err
+	}
+
+	// marshal annotations json
+	kubeAnnotationsJSON, err := json.Marshal(kubeAnnotations)
+	if err != nil {
+		return nil, err
+	}
+
+	// marshals json for namespace options
+	nsOptsJSON, err := json.Marshal(securityContext.GetNamespaceOptions())
+	if err != nil {
+		return nil, err
+	}
+
+	log.Infof(ctx, "Running pod sandbox: %s%s", translateLabelsToDescription(sbox.Config().GetLabels()), leaky.PodInfraContainerName)
 
 	//sets the names of the sandbox and container
 	err = s.setNames(sbox, ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to set name of sandbox")
 	}
-
-	var labelOptions []string
-	securityContext := sbox.Config().GetLinux().GetSecurityContext()
-	selinuxConfig := securityContext.GetSelinuxOptions()
-	if selinuxConfig != nil {
-		labelOptions = getLabelOptions(selinuxConfig)
-	}
-
-	privileged := s.privilegedSandbox(req)
 
 	podContainer, err := s.StorageRuntimeServer().CreatePodSandbox(s.config.SystemContext,
 		sbox.Name(), sbox.ID(),
@@ -133,103 +270,40 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		}
 	}()
 
-	// TODO: factor generating/updating the spec into something other projects can vendor
-
 	// creates a spec Generator with the default spec.
-	g, err := generate.New("linux")
-	if err != nil {
-		return nil, err
-	}
-	g.HostSpecific = true
-	g.ClearProcessRlimits()
-
-	for _, u := range s.config.Ulimits() {
-		g.AddProcessRlimits(u.Name, u.Hard, u.Soft)
-	}
+	g, err := s.generateSpec()
 
 	// setup defaults for the pod sandbox
-	g.SetRootReadonly(true)
-
-	pauseCommand, err := PauseCommand(s.Config(), podContainer.Config)
+	err = s.setSandboxDefaults(g, podContainer)
 	if err != nil {
 		return nil, err
 	}
-	g.SetProcessArgs(pauseCommand)
 
 	// set DNS options
-	var resolvPath string
-	if sbox.Config().GetDnsConfig() != nil {
-		dnsServers := sbox.Config().GetDnsConfig().Servers
-		dnsSearches := sbox.Config().GetDnsConfig().Searches
-		dnsOptions := sbox.Config().GetDnsConfig().Options
-		resolvPath = fmt.Sprintf("%s/resolv.conf", podContainer.RunDir)
-		err = parseDNSOptions(dnsServers, dnsSearches, dnsOptions, resolvPath)
-		if err != nil {
-			err1 := removeFile(resolvPath)
-			if err1 != nil {
-				err = err1
-				return nil, fmt.Errorf("%v; failed to remove %s: %v", err, resolvPath, err1)
-			}
-			return nil, err
-		}
-		if err := label.Relabel(resolvPath, mountLabel, false); err != nil && errors.Cause(err) != unix.ENOTSUP {
-			return nil, err
-		}
-		mnt := spec.Mount{
-			Type:        "bind",
-			Source:      resolvPath,
-			Destination: "/etc/resolv.conf",
-			Options:     []string{"ro", "bind", "nodev", "nosuid", "noexec"},
-		}
-		pathsToChown = append(pathsToChown, resolvPath)
-		g.AddMount(mnt)
-	}
+	s.setDNSOptions(sbox, podContainer, pathsToChown, g, mountLabel, resolvPath)
 
-	// add metadata
-	metadata := sbox.Config().GetMetadata()
-	metadataJSON, err := json.Marshal(metadata)
-	if err != nil {
-		return nil, err
-	}
-
-	// add labels
-	labels := sbox.Config().GetLabels()
-
+	// validate labels
 	if err := validateLabels(labels); err != nil {
 		return nil, err
+	}
+
+	// if selinux is set, set label options with the selinux config
+	if selinuxConfig != nil {
+		labelOptions = getLabelOptions(selinuxConfig)
 	}
 
 	// Add special container name label for the infra container
 	if labels != nil {
 		labels[types.KubernetesContainerNameLabel] = leaky.PodInfraContainerName
 	}
-	labelsJSON, err := json.Marshal(labels)
-	if err != nil {
-		return nil, err
-	}
-
-	// add annotations
-	kubeAnnotations := sbox.Config().GetAnnotations()
-	kubeAnnotationsJSON, err := json.Marshal(kubeAnnotations)
-	if err != nil {
-		return nil, err
-	}
 
 	// set log directory
-	logDir := sbox.Config().GetLogDirectory()
-	if logDir == "" {
-		logDir = filepath.Join(s.config.LogDir, sbox.ID())
-	}
-	if err := os.MkdirAll(logDir, 0700); err != nil {
+	err = s.setLogDir(logDir, sbox)
+	if err != nil {
 		return nil, err
-	}
-	// This should always be absolute from k8s.
-	if !filepath.IsAbs(logDir) {
-		return nil, fmt.Errorf("requested logDir for sbox id %s is a relative path: %s", sbox.ID(), logDir)
 	}
 
 	// Add capabilities from crio.conf if default_capabilities is defined
-	capabilities := &pb.Capability{}
 	if s.config.DefaultCapabilities != nil {
 		g.ClearProcessCapabilities()
 		capabilities.AddCapabilities = append(capabilities.AddCapabilities, s.config.DefaultCapabilities...)
@@ -237,14 +311,6 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	if err := setupCapabilities(&g, capabilities); err != nil {
 		return nil, err
 	}
-
-	nsOptsJSON, err := json.Marshal(securityContext.GetNamespaceOptions())
-	if err != nil {
-		return nil, err
-	}
-
-	hostIPC := securityContext.GetNamespaceOptions().GetIpc() == pb.NamespaceMode_NODE
-	hostPID := securityContext.GetNamespaceOptions().GetPid() == pb.NamespaceMode_NODE
 
 	// Don't use SELinux separation with Host Pid or IPC Namespace or privileged.
 	if hostPID || hostIPC {
@@ -257,39 +323,21 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	g.RemoveMount(libsandbox.DevShmPath)
 
 	// create shm mount for the pod containers.
-	var shmPath string
-	if hostIPC {
-		shmPath = libsandbox.DevShmPath
-	} else {
-		shmPath, err = setupShm(podContainer.RunDir, mountLabel)
-		if err != nil {
-			return nil, err
-		}
-		pathsToChown = append(pathsToChown, shmPath)
-		defer func() {
-			if err != nil {
-				log.Infof(ctx, "runSandbox: unmounting shmPath for sandbox %s", sbox.ID())
-				if err2 := unix.Unmount(shmPath, unix.MNT_DETACH); err2 != nil {
-					log.Warnf(ctx, "failed to unmount shm for pod: %v", err2)
-				}
-			}
-		}()
+	mnt, err := s.createShmMount(sbox, hostIPC, shmPath, podContainer, pathsToChown, mountLabel, ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	mnt := spec.Mount{
-		Type:        "bind",
-		Source:      shmPath,
-		Destination: libsandbox.DevShmPath,
-		Options:     []string{"rw", "bind"},
-	}
 	// bind mount the pod shm
 	g.AddMount(mnt)
 
+	// set the sandbox mount label
 	err = s.setPodSandboxMountLabel(sbox.ID(), mountLabel)
 	if err != nil {
 		return nil, err
 	}
 
+	// set the container id index
 	if err := s.CtrIDIndex().Add(sbox.ID()); err != nil {
 		return nil, err
 	}
@@ -303,15 +351,10 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		}
 	}()
 
-	// set log path inside log directory
-	logPath := filepath.Join(logDir, sbox.ID()+".log")
-
 	// Handle https://issues.k8s.io/44043
-	if err := utils.EnsureSaneLogPath(logPath); err != nil {
+	if err := utils.EnsureValidLogPath(logPath); err != nil {
 		return nil, err
 	}
-
-	hostNetwork := securityContext.GetNamespaceOptions().GetNetwork() == pb.NamespaceMode_NODE
 
 	hostname, err := getHostname(sbox.ID(), sbox.Config().Hostname, hostNetwork)
 	if err != nil {
@@ -345,6 +388,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	g.AddAnnotation(annotations.KubeName, kubeName)
 	g.AddAnnotation(annotations.HostNetwork, fmt.Sprintf("%v", hostNetwork))
 	g.AddAnnotation(annotations.ContainerManager, lib.ContainerManagerCRIO)
+
 	if podContainer.Config.Config.StopSignal != "" {
 		// this key is defined in image-spec conversion document at https://github.com/opencontainers/image-spec/pull/492/files#diff-8aafbe2c3690162540381b8cdb157112R57
 		g.AddAnnotation("org.opencontainers.image.stopSignal", podContainer.Config.Config.StopSignal)
