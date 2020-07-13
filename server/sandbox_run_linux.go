@@ -172,6 +172,125 @@ func (s *Server) createShmMount(sbox sandbox.Sandbox, hostIPC bool, shmPath stri
 	return mnt, nil
 }
 
+// adds spec annotations
+func (s *Server) addAnnotations(g generate.Generator, metadataJSON []byte, labelsJSON []byte, kubeAnnotationsJSON []byte, logPath string, sboxName string, namespace string, sboxID string, pauseImage string, shmPath string, privileged bool, runtimeHandler string, resolvPath string, hostname string, nsOptsJSON []byte, kubeName string, portMappingsJSON []byte, cgroupPath string, cgroupParent string, kubeAnnotations map[string]string, labels map[string]string, created time.Time, podContainer criostore.ContainerInfo) {
+
+	g.AddAnnotation(annotations.Metadata, string(metadataJSON))
+	g.AddAnnotation(annotations.Labels, string(labelsJSON))
+	g.AddAnnotation(annotations.Annotations, string(kubeAnnotationsJSON))
+	g.AddAnnotation(annotations.LogPath, logPath)
+	g.AddAnnotation(annotations.Name, sboxName)
+	g.AddAnnotation(annotations.Namespace, namespace)
+	g.AddAnnotation(annotations.ContainerType, annotations.ContainerTypeSandbox)
+	g.AddAnnotation(annotations.SandboxID, sboxID)
+	g.AddAnnotation(annotations.Image, pauseImage)
+	g.AddAnnotation(annotations.ContainerName, containerName)
+	g.AddAnnotation(annotations.ContainerID, sboxID)
+	g.AddAnnotation(annotations.ShmPath, shmPath)
+	g.AddAnnotation(annotations.PrivilegedRuntime, fmt.Sprintf("%v", privileged))
+	g.AddAnnotation(annotations.RuntimeHandler, runtimeHandler)
+	g.AddAnnotation(annotations.ResolvPath, resolvPath)
+	g.AddAnnotation(annotations.HostName, hostname)
+	g.AddAnnotation(annotations.NamespaceOptions, string(nsOptsJSON))
+	g.AddAnnotation(annotations.KubeName, kubeName)
+	g.AddAnnotation(annotations.HostNetwork, fmt.Sprintf("%v", hostNetwork))
+	g.AddAnnotation(annotations.ContainerManager, lib.ContainerManagerCRIO)
+	g.AddAnnotation(annotations.Created, created.Format(time.RFC3339Nano))
+	g.AddAnnotation(annotations.PortMappings, string(portMappingsJSON))
+	g.AddAnnotation(annotations.CgroupParent, cgroupParent)
+
+	if podContainer.Config.Config.StopSignal != "" {
+		// this key is defined in image-spec conversion document at https://github.com/opencontainers/image-spec/pull/492/files#diff-8aafbe2c3690162540381b8cdb157112R57
+		g.AddAnnotation("org.opencontainers.image.stopSignal", podContainer.Config.Config.StopSignal)
+	}
+
+	if s.config.CgroupManager().IsSystemd() && node.SystemdHasCollectMode() {
+		g.AddAnnotation("org.systemd.property.CollectMode", "'inactive-or-failed'")
+	}
+
+	if cgroupPath != "" {
+		g.SetLinuxCgroupsPath(cgroupPath)
+	}
+
+	for k, v := range kubeAnnotations {
+		g.AddAnnotation(k, v)
+	}
+	for k, v := range labels {
+		g.AddAnnotation(k, v)
+	}
+
+}
+
+// sets the ID mappings for the spec
+func (s *Server) setIDMappings(g generate.Generator) (err error) {
+
+	if s.defaultIDMappings != nil && !s.defaultIDMappings.Empty() {
+		if err := g.AddOrReplaceLinuxNamespace(string(spec.UserNamespace), ""); err != nil {
+			return errors.Wrap(err, "add or replace linux namespace")
+		}
+		for _, uidmap := range s.defaultIDMappings.UIDs() {
+			g.AddLinuxUIDMapping(uint32(uidmap.HostID), uint32(uidmap.ContainerID), uint32(uidmap.Size))
+		}
+		for _, gidmap := range s.defaultIDMappings.GIDs() {
+			g.AddLinuxGIDMapping(uint32(gidmap.HostID), uint32(gidmap.ContainerID), uint32(gidmap.Size))
+		}
+	}
+	return nil
+}
+
+// adds the sandbox to the server
+func (s *Server) addSandboxToServer(sb *libsandbox.Sandbox, sbox sandbox.Sandbox, ctx context.Context) (err error) {
+	if err := s.addSandbox(sb); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			log.Infof(ctx, "runSandbox: removing pod sandbox %s", sbox.ID())
+			if err := s.removeSandbox(sbox.ID()); err != nil {
+				log.Warnf(ctx, "could not remove pod sandbox: %v", err)
+			}
+		}
+	}()
+
+	if err := s.PodIDIndex().Add(sbox.ID()); err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			log.Infof(ctx, "runSandbox: deleting pod ID %s from idIndex", sbox.ID())
+			if err := s.PodIDIndex().Delete(sbox.ID()); err != nil {
+				log.Warnf(ctx, "couldn't delete pod id %s from idIndex", sbox.ID())
+			}
+		}
+	}()
+
+	return nil
+}
+
+// configure generator
+func configureGenerator() {}
+
+// check for duplicate name
+func (s *Server) duplicateNameCheck(sbox sandbox.Sandbox, ctx context.Context) (err error) {
+
+	if errors.Cause(err) == storage.ErrDuplicateName {
+		return fmt.Errorf("pod sandbox with name %q already exists", sbox.Name())
+	}
+	if err != nil {
+		return fmt.Errorf("error creating pod sandbox with name %q: %v", sbox.Name(), err)
+	}
+	defer func() {
+		if err != nil {
+			log.Infof(ctx, "runSandbox: removing pod sandbox from storage: %s", sbox.ID())
+			if err2 := s.StorageRuntimeServer().RemovePodSandbox(sbox.ID()); err2 != nil {
+				log.Warnf(ctx, "couldn't cleanup pod sandbox %q: %v", sbox.ID(), err2)
+			}
+		}
+	}()
+	return nil
+}
+
 func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest) (resp *pb.RunPodSandboxResponse, err error) {
 
 	s.updateLock.RLock()
@@ -183,6 +302,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	}
 
 	// sandbox constants
+	created := time.Now()
 	kubeName := sbox.Config().GetMetadata().GetName()
 	namespace := sbox.Config().GetMetadata().GetNamespace()
 	attempt := sbox.Config().GetMetadata().GetAttempt()
@@ -198,6 +318,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	hostIPC := securityContext.GetNamespaceOptions().GetIpc() == pb.NamespaceMode_NODE
 	hostPID := securityContext.GetNamespaceOptions().GetPid() == pb.NamespaceMode_NODE
 	hostNetwork := securityContext.GetNamespaceOptions().GetNetwork() == pb.NamespaceMode_NODE
+	portMappings := convertPortMappings(sbox.Config().GetPortMappings())
 
 	pathsToChown := []string{}
 
@@ -229,6 +350,12 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		return nil, err
 	}
 
+	// marshals json for portmappings
+	portMappingsJSON, err := json.Marshal(portMappings)
+	if err != nil {
+		return nil, err
+	}
+
 	log.Infof(ctx, "Running pod sandbox: %s%s", translateLabelsToDescription(sbox.Config().GetLabels()), leaky.PodInfraContainerName)
 
 	//sets the names of the sandbox and container
@@ -255,23 +382,17 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 	mountLabel := podContainer.MountLabel
 	processLabel := podContainer.ProcessLabel
 
-	if errors.Cause(err) == storage.ErrDuplicateName {
-		return nil, fmt.Errorf("pod sandbox with name %q already exists", sbox.Name())
-	}
+	// checks for duplicate names
+	err = s.duplicateNameCheck(sbox, ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error creating pod sandbox with name %q: %v", sbox.Name(), err)
+		return nil, err
 	}
-	defer func() {
-		if err != nil {
-			log.Infof(ctx, "runSandbox: removing pod sandbox from storage: %s", sbox.ID())
-			if err2 := s.StorageRuntimeServer().RemovePodSandbox(sbox.ID()); err2 != nil {
-				log.Warnf(ctx, "couldn't cleanup pod sandbox %q: %v", sbox.ID(), err2)
-			}
-		}
-	}()
 
 	// creates a spec Generator with the default spec.
 	g, err := s.generateSpec()
+	if err != nil {
+		return nil, err
+	}
 
 	// setup defaults for the pod sandbox
 	err = s.setSandboxDefaults(g, podContainer)
@@ -356,6 +477,7 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		return nil, err
 	}
 
+	//set hostname
 	hostname, err := getHostname(sbox.ID(), sbox.Config().Hostname, hostNetwork)
 	if err != nil {
 		return nil, err
@@ -368,103 +490,29 @@ func (s *Server) runPodSandbox(ctx context.Context, req *pb.RunPodSandboxRequest
 		return nil, err
 	}
 
-	g.AddAnnotation(annotations.Metadata, string(metadataJSON))
-	g.AddAnnotation(annotations.Labels, string(labelsJSON))
-	g.AddAnnotation(annotations.Annotations, string(kubeAnnotationsJSON))
-	g.AddAnnotation(annotations.LogPath, logPath)
-	g.AddAnnotation(annotations.Name, sbox.Name())
-	g.AddAnnotation(annotations.Namespace, namespace)
-	g.AddAnnotation(annotations.ContainerType, annotations.ContainerTypeSandbox)
-	g.AddAnnotation(annotations.SandboxID, sbox.ID())
-	g.AddAnnotation(annotations.Image, s.config.PauseImage)
-	g.AddAnnotation(annotations.ContainerName, containerName)
-	g.AddAnnotation(annotations.ContainerID, sbox.ID())
-	g.AddAnnotation(annotations.ShmPath, shmPath)
-	g.AddAnnotation(annotations.PrivilegedRuntime, fmt.Sprintf("%v", privileged))
-	g.AddAnnotation(annotations.RuntimeHandler, runtimeHandler)
-	g.AddAnnotation(annotations.ResolvPath, resolvPath)
-	g.AddAnnotation(annotations.HostName, hostname)
-	g.AddAnnotation(annotations.NamespaceOptions, string(nsOptsJSON))
-	g.AddAnnotation(annotations.KubeName, kubeName)
-	g.AddAnnotation(annotations.HostNetwork, fmt.Sprintf("%v", hostNetwork))
-	g.AddAnnotation(annotations.ContainerManager, lib.ContainerManagerCRIO)
-
-	if podContainer.Config.Config.StopSignal != "" {
-		// this key is defined in image-spec conversion document at https://github.com/opencontainers/image-spec/pull/492/files#diff-8aafbe2c3690162540381b8cdb157112R57
-		g.AddAnnotation("org.opencontainers.image.stopSignal", podContainer.Config.Config.StopSignal)
-	}
-
-	if s.config.CgroupManager().IsSystemd() && node.SystemdHasCollectMode() {
-		g.AddAnnotation("org.systemd.property.CollectMode", "'inactive-or-failed'")
-	}
-
-	created := time.Now()
-	g.AddAnnotation(annotations.Created, created.Format(time.RFC3339Nano))
-
-	portMappings := convertPortMappings(sbox.Config().GetPortMappings())
-	portMappingsJSON, err := json.Marshal(portMappings)
-	if err != nil {
-		return nil, err
-	}
-	g.AddAnnotation(annotations.PortMappings, string(portMappingsJSON))
-
+	// set cgroup parent
 	cgroupParent, cgroupPath, err := s.config.CgroupManager().SandboxCgroupPath(sbox.Config().GetLinux().GetCgroupParent(), sbox.ID())
 	if err != nil {
 		return nil, err
 	}
-	if cgroupPath != "" {
-		g.SetLinuxCgroupsPath(cgroupPath)
-	}
-	g.AddAnnotation(annotations.CgroupParent, cgroupParent)
 
-	if s.defaultIDMappings != nil && !s.defaultIDMappings.Empty() {
-		if err := g.AddOrReplaceLinuxNamespace(string(spec.UserNamespace), ""); err != nil {
-			return nil, errors.Wrap(err, "add or replace linux namespace")
-		}
-		for _, uidmap := range s.defaultIDMappings.UIDs() {
-			g.AddLinuxUIDMapping(uint32(uidmap.HostID), uint32(uidmap.ContainerID), uint32(uidmap.Size))
-		}
-		for _, gidmap := range s.defaultIDMappings.GIDs() {
-			g.AddLinuxGIDMapping(uint32(gidmap.HostID), uint32(gidmap.ContainerID), uint32(gidmap.Size))
-		}
-	}
+	// add spec annotations
+	s.addAnnotations(g, metadataJSON, labelsJSON, kubeAnnotationsJSON, logPath, sbox.Name(), namespace, sbox.ID(), s.config.PauseImage, shmPath, privileged, runtimeHandler, resolvPath, hostname, nsOptsJSON, kubeName, portMappingsJSON, cgroupParent, cgroupPath, kubeAnnotations, labels, created, podContainer)
 
+	// create a new sandbox
 	sb, err := libsandbox.New(sbox.ID(), namespace, sbox.Name(), kubeName, logDir, labels, kubeAnnotations, processLabel, mountLabel, metadata, shmPath, cgroupParent, privileged, runtimeHandler, resolvPath, hostname, portMappings, hostNetwork)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.addSandbox(sb); err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err != nil {
-			log.Infof(ctx, "runSandbox: removing pod sandbox %s", sbox.ID())
-			if err := s.removeSandbox(sbox.ID()); err != nil {
-				log.Warnf(ctx, "could not remove pod sandbox: %v", err)
-			}
-		}
-	}()
-
-	if err := s.PodIDIndex().Add(sbox.ID()); err != nil {
+	// sets the id mappings for the spec
+	err = s.setIDMappings(g)
+	if err != nil {
 		return nil, err
 	}
 
-	defer func() {
-		if err != nil {
-			log.Infof(ctx, "runSandbox: deleting pod ID %s from idIndex", sbox.ID())
-			if err := s.PodIDIndex().Delete(sbox.ID()); err != nil {
-				log.Warnf(ctx, "couldn't delete pod id %s from idIndex", sbox.ID())
-			}
-		}
-	}()
-
-	for k, v := range kubeAnnotations {
-		g.AddAnnotation(k, v)
-	}
-	for k, v := range labels {
-		g.AddAnnotation(k, v)
-	}
+	// add sandbox to the server
+	s.addSandboxToServer(sb, sbox, ctx)
 
 	// Add default sysctls given in crio.conf
 	s.configureGeneratorForSysctls(ctx, g, hostNetwork, hostIPC)
