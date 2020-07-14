@@ -27,6 +27,7 @@ import (
 	"github.com/cri-o/cri-o/internal/storage"
 	libconfig "github.com/cri-o/cri-o/pkg/config"
 	ctrIface "github.com/cri-o/cri-o/pkg/container"
+	spec "github.com/cri-o/cri-o/pkg/specgen"
 	"github.com/cri-o/cri-o/utils"
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/opencontainers/runc/libcontainer/devices"
@@ -47,33 +48,18 @@ type configDevice struct {
 }
 
 func addDevicesPlatform(ctx context.Context, sb *sandbox.Sandbox, containerConfig *pb.ContainerConfig, privilegedWithoutHostDevices bool, specgen *generate.Generator) error {
-	sp := specgen.Config
+	sp := spec.GetSpec().Config
 	if containerConfig.GetLinux().GetSecurityContext() != nil && containerConfig.GetLinux().GetSecurityContext().GetPrivileged() && !privilegedWithoutHostDevices {
 		hostDevices, err := devices.HostDevices()
 		if err != nil {
 			return err
 		}
 		for _, hostDevice := range hostDevices {
-			rd := rspec.LinuxDevice{
-				Path:  hostDevice.Path,
-				Type:  string(hostDevice.Type),
-				Major: hostDevice.Major,
-				Minor: hostDevice.Minor,
-				UID:   &hostDevice.Uid,
-				GID:   &hostDevice.Gid,
-			}
-			if hostDevice.Major == 0 && hostDevice.Minor == 0 {
-				// Invalid device, most likely a symbolic link, skip it.
-				continue
-			}
-			specgen.AddDevice(rd)
+			// for every device in hostDevices set that device in the spec
+			spec.SetLinuxDevice(ctx, hostDevice.Path, string(hostDevice.Type), hostDevice.Major, hostDevice.Minor, &hostDevice.Uid, &hostDevice.Gid)
+
 		}
-		sp.Linux.Resources.Devices = []rspec.LinuxDeviceCgroup{
-			{
-				Allow:  true,
-				Access: "rwm",
-			},
-		}
+		spec.SetLinuxDeviceCgroup(true, "rwm")
 	}
 
 	for _, device := range containerConfig.GetDevices() {
@@ -103,22 +89,8 @@ func addDevicesPlatform(ctx context.Context, sb *sandbox.Sandbox, containerConfi
 		dev, err := devices.DeviceFromPath(path, device.Permissions)
 		// if there was no error, return the device
 		if err == nil {
-			rd := rspec.LinuxDevice{
-				Path:  device.ContainerPath,
-				Type:  string(dev.Type),
-				Major: dev.Major,
-				Minor: dev.Minor,
-				UID:   &dev.Uid,
-				GID:   &dev.Gid,
-			}
-			specgen.AddDevice(rd)
-			sp.Linux.Resources.Devices = append(sp.Linux.Resources.Devices, rspec.LinuxDeviceCgroup{
-				Allow:  true,
-				Type:   string(dev.Type),
-				Major:  &dev.Major,
-				Minor:  &dev.Minor,
-				Access: dev.Permissions,
-			})
+			spec.SetLinuxDevice(ctx, device.ContainerPath, string(dev.Type), dev.Major, dev.Minor, &dev.Uid, &dev.Gid)
+			spec.AddLinuxDeviceCgroup(true, string(dev.Type), &dev.Major, &dev.Minor, dev.Permissions)
 			continue
 		}
 		// if the device is not a device node
