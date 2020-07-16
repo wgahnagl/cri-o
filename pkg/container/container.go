@@ -2,12 +2,21 @@ package container
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/containers/libpod/pkg/annotations"
 	"github.com/containers/storage/pkg/stringid"
+	"github.com/cri-o/cri-o/internal/lib"
+	"github.com/cri-o/cri-o/internal/lib/sandbox"
+	oci "github.com/cri-o/cri-o/internal/oci"
+	"github.com/cri-o/cri-o/internal/storage"
 	"github.com/cri-o/cri-o/utils"
+	rspec "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -62,6 +71,21 @@ type Container interface {
 	// SelinuxLabel returns the container's SelinuxLabel
 	// it takes the sandbox's label, which it falls back upon
 	SelinuxLabel(string) ([]string, error)
+
+	// spec functions
+
+	// returns the spec
+	Spec() *generate.Generator
+
+	// SpecAddMount adds a mount to the container's spec
+	// it takes the destination, the mount type, the source type, the mount to remove, and the options
+	SpecAddMount(string, string, string, string, []string)
+
+	// SpecAddAnnotations adds annotations to the spec.
+	// it takes the sandbox, the list of container volumes, the mount path
+	// the configStopSignal, an image result, a bool if it is systemd,
+	// and a bool systemdHasCollectMode
+	SpecAddAnnotations(*sandbox.Sandbox, []oci.ContainerVolume, string, string, *storage.ImageResult, bool, bool) error
 }
 
 // container is the hidden default type behind the Container interface
@@ -72,13 +96,121 @@ type container struct {
 	id         string
 	name       string
 	privileged bool
+	spec       generate.Generator
 }
 
 // New creates a new, empty Sandbox instance
-func New(ctx context.Context) Container {
-	return &container{
-		ctx: ctx,
+func New(ctx context.Context) (Container, error) {
+	spec, err := generate.New("linux")
+	if err != nil {
+		return nil, err
 	}
+	return &container{
+		ctx:  ctx,
+		spec: spec,
+	}, nil
+}
+
+// SpecAddMount adds a specified mount to the spec
+func (c *container) SpecAddMount(destination, mntType, sourceType, mountToRemove string, options []string) {
+	c.spec.RemoveMount(mountToRemove)
+	mnt := rspec.Mount{
+		Destination: destination,
+		Type:        mntType,
+		Source:      sourceType,
+		Options:     options,
+	}
+	c.spec.AddMount(mnt)
+}
+
+// SpecAddAnnotation adds all annotations to the spec
+func (c *container) SpecAddAnnotations(sb *sandbox.Sandbox, containerVolumes []oci.ContainerVolume, mountPoint, configStopSignal string, imageResult *storage.ImageResult, isSystemd, systemdHasCollectMode bool) (err error) {
+	const podTerminationGracePeriodLabel = "io.kubernetes.pod.terminationGracePeriod"
+	kubeAnnotations := c.Config().GetAnnotations()
+	created := time.Now()
+	labels := c.Config().GetLabels()
+
+	image, err := c.Image()
+	if err != nil {
+		return err
+	}
+	logPath, err := c.LogPath(sb.LogDir())
+	if err != nil {
+		return err
+	}
+	c.spec.AddAnnotation(annotations.Image, image)
+	c.spec.AddAnnotation(annotations.ImageName, imageResult.Name)
+	c.spec.AddAnnotation(annotations.ImageRef, imageResult.ID)
+	c.spec.AddAnnotation(annotations.Name, c.Name())
+	c.spec.AddAnnotation(annotations.ContainerID, c.ID())
+	c.spec.AddAnnotation(annotations.SandboxID, sb.ID())
+	c.spec.AddAnnotation(annotations.SandboxName, sb.Name())
+	c.spec.AddAnnotation(annotations.ContainerType, annotations.ContainerTypeContainer)
+	c.spec.AddAnnotation(annotations.LogPath, logPath)
+	c.spec.AddAnnotation(annotations.TTY, fmt.Sprintf("%v", c.Config().Tty))
+	c.spec.AddAnnotation(annotations.Stdin, fmt.Sprintf("%v", c.Config().Stdin))
+	c.spec.AddAnnotation(annotations.StdinOnce, fmt.Sprintf("%v", c.Config().StdinOnce))
+	c.spec.AddAnnotation(annotations.ResolvPath, sb.ResolvPath())
+	c.spec.AddAnnotation(annotations.ContainerManager, lib.ContainerManagerCRIO)
+	c.spec.AddAnnotation(annotations.MountPoint, mountPoint)
+	c.spec.AddAnnotation(annotations.SeccompProfilePath, c.Config().GetLinux().GetSecurityContext().GetSeccompProfilePath())
+	c.spec.AddAnnotation(annotations.Created, created.Format(time.RFC3339Nano))
+
+	metadataJSON, err := json.Marshal(c.Config().GetMetadata())
+	if err != nil {
+		return err
+	}
+	c.spec.AddAnnotation(annotations.Metadata, string(metadataJSON))
+
+	labelsJSON, err := json.Marshal(labels)
+	if err != nil {
+		return err
+	}
+	c.spec.AddAnnotation(annotations.Labels, string(labelsJSON))
+
+	volumesJSON, err := json.Marshal(containerVolumes)
+	if err != nil {
+		return err
+	}
+	c.spec.AddAnnotation(annotations.Volumes, string(volumesJSON))
+
+	kubeAnnotationsJSON, err := json.Marshal(kubeAnnotations)
+	if err != nil {
+		return err
+	}
+	c.spec.AddAnnotation(annotations.Annotations, string(kubeAnnotationsJSON))
+
+	for k, v := range kubeAnnotations {
+		c.spec.AddAnnotation(k, v)
+	}
+	for k, v := range labels {
+		c.spec.AddAnnotation(k, v)
+	}
+	for idx, ip := range sb.IPs() {
+		c.spec.AddAnnotation(fmt.Sprintf("%s.%d", annotations.IP, idx), ip)
+	}
+
+	if isSystemd {
+		if t, ok := kubeAnnotations[podTerminationGracePeriodLabel]; ok {
+			// currently only supported by systemd, see
+			// https://github.com/opencontainers/runc/pull/2224
+			c.spec.AddAnnotation("org.systemd.property.TimeoutStopUSec", "uint64 "+t+"000000") // sec to usec
+		}
+		if systemdHasCollectMode {
+			c.spec.AddAnnotation("org.systemd.property.CollectMode", "'inactive-or-failed'")
+		}
+	}
+
+	if configStopSignal != "" {
+		// this key is defined in image-spec conversion document at https://github.com/opencontainers/image-spec/pull/492/files#diff-8aafbe2c3690162540381b8cdb157112R57
+		c.spec.AddAnnotation("org.opencontainers.image.stopSignal", configStopSignal)
+	}
+
+	return nil
+}
+
+func (c *container) Spec() *generate.Generator {
+	return &c.spec
 }
 
 // SetConfig sets the configuration to the container and validates it
