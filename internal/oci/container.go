@@ -45,6 +45,7 @@ type Container struct {
 	imageRef           string
 	mountPoint         string
 	seccompProfilePath string
+	ulimitProfilePath  string
 	conmonCgroupfsPath string
 	labels             fields.Set
 	annotations        fields.Set
@@ -210,6 +211,16 @@ func (c *Container) SetSeccompProfilePath(pp string) {
 // SeccompProfilePath returns the seccomp profile path
 func (c *Container) SeccompProfilePath() string {
 	return c.seccompProfilePath
+}
+
+// SetUlimitProfilePath sets the ulimit profile path
+func (c *Container) SetUlimitProfilePath(pp string) {
+	c.ulimitProfilePath = pp
+}
+
+// GetUlimitProfilePath gets the ulimit profile path
+func (c *Container) GetUlimitProfilePath() string {
+	return c.ulimitProfilePath
 }
 
 // BundlePath returns the bundlePath of the container.
