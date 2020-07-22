@@ -26,6 +26,7 @@ h
 --conmon-env
 --container-attach-socket-dir
 --container-exits-dir
+--container-ulimit-profile
 --ctr-stop-timeout
 --decryption-keys-path
 --default-capabilities
@@ -90,4 +91,4 @@ h
     return 0
 }
 
-complete -F _cli_bash_autocomplete crio
+complete -F _cli_/bash_autocomplete crio

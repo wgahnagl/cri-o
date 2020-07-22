@@ -613,6 +613,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Usage:   fmt.Sprintf("Ulimits to apply to containers by default (name=soft:hard) (default: %q)", defConf.DefaultUlimits),
 			EnvVars: []string{"CONTAINER_DEFAULT_ULIMITS"},
 		},
+		&cli.StringFlag{
+			Name:      "container-ulimit-profile",
+			Usage:     "Path to the ulimit profile to be used as the runtime's default. If not specified then the enternal ulimit profile will be used.",
+			EnvVars:   []string{"CONTAINER_ULIMIT_PROFILE"},
+			TakesFile: true,
+		},
 		&cli.BoolFlag{
 			Name:    "profile",
 			Usage:   "Enable pprof remote profiler on localhost:6060",
