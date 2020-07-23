@@ -218,8 +218,8 @@ func (c *Container) SetUlimitProfilePath(pp string) {
 	c.ulimitProfilePath = pp
 }
 
-// GetUlimitProfilePath gets the ulimit profile path
-func (c *Container) GetUlimitProfilePath() string {
+// UlimitProfilePath gets the ulimit profile path
+func (c *Container) UlimitProfilePath() string {
 	return c.ulimitProfilePath
 }
 
