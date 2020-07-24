@@ -503,6 +503,12 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			TakesFile: true,
 		},
 		&cli.StringFlag{
+			Name:      "container-ulimit-profile",
+			Usage:     "Path to the ulimit profile to be used. If not specified then the internal ulimit profile will be used.",
+			EnvVars:   []string{"CONTAINER_ULIMIT_PROFILE"},
+			TakesFile: true,
+		},
+		&cli.StringFlag{
 			Name:    "apparmor-profile",
 			Usage:   "Name of the apparmor profile to be used as the runtime's default. This only takes effect if the user does not specify a profile via the Kubernetes Pod's metadata annotation.",
 			Value:   defConf.ApparmorProfile,
@@ -612,12 +618,6 @@ func getCrioFlags(defConf *libconfig.Config) []cli.Flag {
 			Name:    "default-ulimits",
 			Usage:   fmt.Sprintf("Ulimits to apply to containers by default (name=soft:hard) (default: %q)", defConf.DefaultUlimits),
 			EnvVars: []string{"CONTAINER_DEFAULT_ULIMITS"},
-		},
-		&cli.StringFlag{
-			Name:      "container-ulimit-profile",
-			Usage:     "Path to the ulimit profile to be used as the runtime's default. If not specified then the enternal ulimit profile will be used.",
-			EnvVars:   []string{"CONTAINER_ULIMIT_PROFILE"},
-			TakesFile: true,
 		},
 		&cli.BoolFlag{
 			Name:    "profile",

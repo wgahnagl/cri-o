@@ -22,17 +22,18 @@ package v1alpha2
 import (
 	context "context"
 	fmt "fmt"
+	io "io"
+	math "math"
+	math_bits "math/bits"
+	reflect "reflect"
+	strings "strings"
+
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	github_com_gogo_protobuf_sortkeys "github.com/gogo/protobuf/sortkeys"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	io "io"
-	math "math"
-	math_bits "math/bits"
-	reflect "reflect"
-	strings "strings"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -721,6 +722,7 @@ type LinuxSandboxSecurityContext struct {
 	//   <full-path-to-profile> is the full path of the profile.
 	// Default: "", which is identical with unconfined.
 	SeccompProfilePath   string   `protobuf:"bytes,7,opt,name=seccomp_profile_path,json=seccompProfilePath,proto3" json:"seccomp_profile_path,omitempty"`
+	UlimitProfilePath    string   `protobuf:"bytes,7,opt,name=ulimit_profile_path,json=ulimitProfilePath,proto3" json:"ulimit_profile_path,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
@@ -809,6 +811,13 @@ func (m *LinuxSandboxSecurityContext) GetPrivileged() bool {
 func (m *LinuxSandboxSecurityContext) GetSeccompProfilePath() string {
 	if m != nil {
 		return m.SeccompProfilePath
+	}
+	return ""
+}
+
+func (m *LinuxSandboxSecurityContext) GetUlimitProfilePath() string {
+	if m != nil {
+		return m.UlimitProfilePath
 	}
 	return ""
 }
@@ -2582,6 +2591,8 @@ type LinuxContainerSecurityContext struct {
 	//   <full-path-to-profile> is the full path of the profile.
 	// Default: "", which is identical with unconfined.
 	SeccompProfilePath string `protobuf:"bytes,10,opt,name=seccomp_profile_path,json=seccompProfilePath,proto3" json:"seccomp_profile_path,omitempty"`
+	UlimitProfilePath  string `protobuf:"bytes,10,opt,name=ulimit_profile_path,json=ulimitProfilePath,proto3" json:"ulimit_profile_path,omitempty"`
+
 	// no_new_privs defines if the flag for no_new_privs should be set on the
 	// container.
 	NoNewPrivs bool `protobuf:"varint,11,opt,name=no_new_privs,json=noNewPrivs,proto3" json:"no_new_privs,omitempty"`
@@ -2700,6 +2711,13 @@ func (m *LinuxContainerSecurityContext) GetApparmorProfile() string {
 func (m *LinuxContainerSecurityContext) GetSeccompProfilePath() string {
 	if m != nil {
 		return m.SeccompProfilePath
+	}
+	return ""
+}
+
+func (m *LinuxContainerSecurityContext) GetUlimitProfilePath() string {
+	if m != nil {
+		return m.UlimitProfilePath
 	}
 	return ""
 }

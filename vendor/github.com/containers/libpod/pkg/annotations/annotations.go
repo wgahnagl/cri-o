@@ -31,6 +31,9 @@ const (
 	// SeccompProfilePath is the node seccomp profile path
 	SeccompProfilePath = "io.kubernetes.cri-o.SeccompProfilePath"
 
+	// UlimitProfilePath is the node ulimit profile path
+	UlimitProfilePath = "io.kubernetes.cri-o.UlimitProfilePath"
+
 	// Image is the container image ID annotation
 	Image = "io.kubernetes.cri-o.Image"
 

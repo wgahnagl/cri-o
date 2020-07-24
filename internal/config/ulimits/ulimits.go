@@ -1,10 +1,15 @@
 package ulimits
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"strings"
 
 	units "github.com/docker/go-units"
+	ulimits "github.com/seccomp/containers-golang"
+
+	"github.com/pkg/errors"
 )
 
 type Ulimit struct {
@@ -43,6 +48,22 @@ func (c *Config) LoadUlimits(ulimits []string) error {
 			Soft: rl.Soft,
 		})
 	}
+	return nil
+}
+
+func (c *Config) LoadProfile(profilePath string) error {
+	if profilePath == "" {
+		return nil
+	}
+	profile, err := ioutil.ReadFile(profilePath)
+	if err != nil {
+		return errors.Wrapf(err, "opening ulimit profile %s failed", profilePath)
+	}
+	tmpProfile := &ulimits.Ulimits{}
+	if err := json.Unmarshal(profile, tmpProfile); err != nil {
+		return errors.Wrap(err, "ecoding ulimit profile failed")
+	}
+
 	return nil
 }
 

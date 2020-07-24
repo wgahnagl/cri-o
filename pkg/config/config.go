@@ -861,6 +861,10 @@ func (c *RuntimeConfig) Seccomp() *seccomp.Config {
 	return c.seccompConfig
 }
 
+func (c *RuntimeConfig) Ulimit() *ulimits.Config {
+	return c.ulimitsConfig
+}
+
 // AppArmor returns the AppArmor configuration
 func (c *RuntimeConfig) AppArmor() *apparmor.Config {
 	return c.apparmorConfig

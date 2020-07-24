@@ -14,6 +14,13 @@ type Seccomp struct {
 	Syscalls      []*Syscall     `json:"syscalls"`
 }
 
+// Ulimits represents the config for a ulimits profile
+type Ulimits struct {
+	Name string `json:"name,omniempty"`
+	Hard string `json:"hard,omniempty"`
+	Soft string `json:"soft,omniempty"`
+}
+
 // Architecture is used to represent a specific architecture
 // and its sub-architectures
 type Architecture struct {
