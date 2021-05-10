@@ -18,7 +18,7 @@ require (
 	github.com/containers/image/v5 v5.11.1
 	github.com/containers/ocicrypt v1.1.1
 	github.com/containers/podman/v3 v3.1.2
-	github.com/containers/storage v1.30.0
+	github.com/containers/storage v1.30.2
 	github.com/coreos/go-systemd/v22 v22.3.1
 	github.com/cpuguy83/go-md2man v1.0.10
 	github.com/creack/pty v1.1.11
@@ -35,7 +35,7 @@ require (
 	github.com/google/renameio v1.0.0
 	github.com/google/uuid v1.2.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.2.2
-	github.com/json-iterator/go v1.1.10
+	github.com/json-iterator/go v1.1.11
 	github.com/onsi/ginkgo v1.16.1
 	github.com/onsi/gomega v1.11.0
 	github.com/opencontainers/go-digest v1.0.0
