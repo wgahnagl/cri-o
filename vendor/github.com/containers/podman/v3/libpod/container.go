@@ -126,6 +126,8 @@ type Container struct {
 
 	// This is true if a container is restored from a checkpoint.
 	restoreFromCheckpoint bool
+
+	slirp4netnsSubnet *net.IPNet
 }
 
 // ContainerState contains the current state of the container
@@ -233,6 +235,18 @@ type ContainerImageVolume struct {
 	Dest string `json:"dest"`
 	// ReadWrite sets the volume writable.
 	ReadWrite bool `json:"rw"`
+}
+
+// ContainerSecret is a secret that is mounted in a container
+type ContainerSecret struct {
+	// Secret is the secret
+	*secrets.Secret
+	// UID is tbe UID of the secret file
+	UID uint32
+	// GID is the GID of the secret file
+	GID uint32
+	// Mode is the mode of the secret file
+	Mode uint32
 }
 
 // ContainerNetworkDescriptions describes the relationship between the CNI
@@ -944,6 +958,12 @@ func (c *Container) cGroupPath() (string, error) {
 	// is the libpod-specific one we're looking for.
 	//
 	// See #8397 on the need for the longest-path look up.
+	//
+	// And another workaround for containers running systemd as the payload.
+	// containers running systemd moves themselves into a child subgroup of
+	// the named systemd cgroup hierarchy.  Ignore any named cgroups during
+	// the lookup.
+	// See #10602 for more details.
 	procPath := fmt.Sprintf("/proc/%d/cgroup", c.state.PID)
 	lines, err := ioutil.ReadFile(procPath)
 	if err != nil {
@@ -957,6 +977,10 @@ func (c *Container) cGroupPath() (string, error) {
 		fields := bytes.Split(line, []byte(":"))
 		if len(fields) != 3 {
 			logrus.Debugf("Error parsing cgroup: expected 3 fields but got %d: %s", len(fields), procPath)
+			continue
+		}
+		// Ignore named cgroups like name=systemd.
+		if bytes.Contains(fields[1], []byte("=")) {
 			continue
 		}
 		path := string(fields[2])
@@ -1124,7 +1148,7 @@ func (c *Container) Umask() string {
 }
 
 //Secrets return the secrets in the container
-func (c *Container) Secrets() []*secrets.Secret {
+func (c *Container) Secrets() []*ContainerSecret {
 	return c.config.Secrets
 }
 
