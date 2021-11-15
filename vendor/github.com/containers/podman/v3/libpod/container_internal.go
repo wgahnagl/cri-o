@@ -293,6 +293,15 @@ func (c *Container) handleRestartPolicy(ctx context.Context) (_ bool, retErr err
 		}
 	}
 
+	// setup rootlesskit port forwarder again since it dies when conmon exits
+	// we use rootlesskit port forwarder only as rootless and when bridge network is used
+	if rootless.IsRootless() && c.config.NetMode.IsBridge() && len(c.config.PortMappings) > 0 {
+		err := c.runtime.setupRootlessPortMappingViaRLK(c, c.state.NetNS.Path())
+		if err != nil {
+			return false, err
+		}
+	}
+
 	if c.state.State == define.ContainerStateStopped {
 		// Reinitialize the container if we need to
 		if err := c.reinit(ctx, true); err != nil {
@@ -367,6 +376,12 @@ func (c *Container) setupStorageMapping(dest, from *storage.IDMappingOptions) {
 		return
 	}
 	*dest = *from
+	// If we are creating a container inside a pod, we always want to inherit the
+	// userns settings from the infra container. So clear the auto userns settings
+	// so that we don't request storage for a new uid/gid map.
+	if c.PodID() != "" && !c.IsInfra() {
+		dest.AutoUserNs = false
+	}
 	if dest.AutoUserNs {
 		overrides := c.getUserOverrides()
 		dest.AutoUserNsOpts.PasswdFile = overrides.ContainerEtcPasswdPath
@@ -464,9 +479,27 @@ func (c *Container) setupStorage(ctx context.Context) error {
 
 	c.setupStorageMapping(&options.IDMappingOptions, &c.config.IDMappings)
 
-	containerInfo, err := c.runtime.storageService.CreateContainerStorage(ctx, c.runtime.imageContext, c.config.RootfsImageName, c.config.RootfsImageID, c.config.Name, c.config.ID, options)
-	if err != nil {
-		return errors.Wrapf(err, "error creating container storage")
+	// Unless the user has specified a name, use a randomly generated one.
+	// Note that name conflicts may occur (see #11735), so we need to loop.
+	generateName := c.config.Name == ""
+	var containerInfo ContainerInfo
+	var containerInfoErr error
+	for {
+		if generateName {
+			name, err := c.runtime.generateName()
+			if err != nil {
+				return err
+			}
+			c.config.Name = name
+		}
+		containerInfo, containerInfoErr = c.runtime.storageService.CreateContainerStorage(ctx, c.runtime.imageContext, c.config.RootfsImageName, c.config.RootfsImageID, c.config.Name, c.config.ID, options)
+
+		if !generateName || errors.Cause(containerInfoErr) != storage.ErrDuplicateName {
+			break
+		}
+	}
+	if containerInfoErr != nil {
+		return errors.Wrapf(containerInfoErr, "error creating container storage")
 	}
 
 	c.config.IDMappings.UIDMap = containerInfo.UIDMap
@@ -578,6 +611,7 @@ func resetState(state *ContainerState) {
 	state.StoppedByUser = false
 	state.RestartPolicyMatch = false
 	state.RestartCount = 0
+	state.Checkpointed = false
 }
 
 // Refresh refreshes the container's state after a restart.
@@ -970,7 +1004,7 @@ func (c *Container) checkDependenciesRunning() ([]string, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "error retrieving state of dependency %s of container %s", dep, c.ID())
 		}
-		if state != define.ContainerStateRunning {
+		if state != define.ContainerStateRunning && !depCtr.config.IsInfra {
 			notRunning = append(notRunning, dep)
 		}
 		depCtrs[dep] = depCtr
@@ -1046,7 +1080,7 @@ func (c *Container) cniHosts() string {
 	var hosts string
 	if len(c.state.NetworkStatus) > 0 && len(c.state.NetworkStatus[0].IPs) > 0 {
 		ipAddress := strings.Split(c.state.NetworkStatus[0].IPs[0].Address.String(), "/")[0]
-		hosts += fmt.Sprintf("%s\t%s %s\n", ipAddress, c.Hostname(), c.Config().Name)
+		hosts += fmt.Sprintf("%s\t%s %s\n", ipAddress, c.Hostname(), c.config.Name)
 	}
 	return hosts
 }
@@ -1062,6 +1096,11 @@ func (c *Container) init(ctx context.Context, retainRetries bool) error {
 	// Generate the OCI newSpec
 	newSpec, err := c.generateSpec(ctx)
 	if err != nil {
+		return err
+	}
+
+	// Make sure the workdir exists while initializing container
+	if err := c.resolveWorkDir(); err != nil {
 		return err
 	}
 
@@ -1098,6 +1137,7 @@ func (c *Container) init(ctx context.Context, retainRetries bool) error {
 		c.state.ExecSessions = make(map[string]*ExecSession)
 	}
 
+	c.state.Checkpointed = false
 	c.state.ExitCode = 0
 	c.state.Exited = false
 	c.state.State = define.ContainerStateCreated
@@ -2078,7 +2118,7 @@ func (c *Container) checkReadyForRemoval() error {
 		return errors.Wrapf(define.ErrCtrStateInvalid, "container %s is in invalid state", c.ID())
 	}
 
-	if c.ensureState(define.ContainerStateRunning, define.ContainerStatePaused) {
+	if c.ensureState(define.ContainerStateRunning, define.ContainerStatePaused) && !c.IsInfra() {
 		return errors.Wrapf(define.ErrCtrStateInvalid, "cannot remove container %s as it is %s - running or paused containers cannot be removed without force", c.ID(), c.state.State.String())
 	}
 
@@ -2104,7 +2144,7 @@ func (c *Container) canWithPrevious() error {
 // JSON files for later export
 func (c *Container) prepareCheckpointExport() error {
 	// save live config
-	if _, err := metadata.WriteJSONFile(c.Config(), c.bundlePath(), metadata.ConfigDumpFile); err != nil {
+	if _, err := metadata.WriteJSONFile(c.config, c.bundlePath(), metadata.ConfigDumpFile); err != nil {
 		return err
 	}
 
