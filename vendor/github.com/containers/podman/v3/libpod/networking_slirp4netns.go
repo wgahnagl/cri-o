@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/containers/podman/v3/pkg/errorhandling"
 	"github.com/containers/podman/v3/pkg/rootless"
 	"github.com/containers/podman/v3/pkg/rootlessport"
@@ -57,6 +58,8 @@ type slirp4netnsNetworkOptions struct {
 	outboundAddr        string
 	outboundAddr6       string
 }
+
+const ipv6ConfDefaultAcceptDadSysctl = "/proc/sys/net/ipv6/conf/default/accept_dad"
 
 func checkSlirpFlags(path string) (*slirpFeatures, error) {
 	cmd := exec.Command(path, "--help")
@@ -222,7 +225,7 @@ func (r *Runtime) setupSlirp4netns(ctr *Container) error {
 	defer errorhandling.CloseQuiet(syncR)
 	defer errorhandling.CloseQuiet(syncW)
 
-	havePortMapping := len(ctr.Config().PortMappings) > 0
+	havePortMapping := len(ctr.config.PortMappings) > 0
 	logPath := filepath.Join(ctr.runtime.config.Engine.TmpDir, fmt.Sprintf("slirp4netns-%s.log", ctr.config.ID))
 
 	ctrNetworkSlipOpts := []string{}
@@ -297,6 +300,39 @@ func (r *Runtime) setupSlirp4netns(ctr *Container) error {
 	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+
+	var slirpReadyChan (chan struct{})
+
+	if netOptions.enableIPv6 {
+		slirpReadyChan = make(chan struct{})
+		defer close(slirpReadyChan)
+		go func() {
+			err := ns.WithNetNSPath(netnsPath, func(_ ns.NetNS) error {
+				// Duplicate Address Detection slows the ipv6 setup down for 1-2 seconds.
+				// Since slirp4netns is run it is own namespace and not directly routed
+				// we can skip this to make the ipv6 address immediately available.
+				// We change the default to make sure the slirp tap interface gets the
+				// correct value assigned so DAD is disabled for it
+				// Also make sure to change this value back to the original after slirp4netns
+				// is ready in case users rely on this sysctl.
+				orgValue, err := ioutil.ReadFile(ipv6ConfDefaultAcceptDadSysctl)
+				if err != nil {
+					return err
+				}
+				err = ioutil.WriteFile(ipv6ConfDefaultAcceptDadSysctl, []byte("0"), 0644)
+				if err != nil {
+					return err
+				}
+				// wait for slirp to finish setup
+				<-slirpReadyChan
+				return ioutil.WriteFile(ipv6ConfDefaultAcceptDadSysctl, orgValue, 0644)
+			})
+			if err != nil {
+				logrus.Warnf("failed to set net.ipv6.conf.default.accept_dad sysctl: %v", err)
+			}
+		}()
+	}
+
 	if err := cmd.Start(); err != nil {
 		return errors.Wrapf(err, "failed to start slirp4netns process")
 	}
@@ -309,6 +345,9 @@ func (r *Runtime) setupSlirp4netns(ctr *Container) error {
 
 	if err := waitForSync(syncR, cmd, logFile, 1*time.Second); err != nil {
 		return err
+	}
+	if slirpReadyChan != nil {
+		slirpReadyChan <- struct{}{}
 	}
 
 	// Set a default slirp subnet. Parsing a string with the net helper is easier than building the struct myself
@@ -629,19 +668,13 @@ func getRootlessPortChildIP(c *Container) string {
 // reloadRootlessRLKPortMapping will trigger a reload for the port mappings in the rootlessport process.
 // This should only be called by network connect/disconnect and only as rootless.
 func (c *Container) reloadRootlessRLKPortMapping() error {
+	if len(c.config.PortMappings) == 0 {
+		return nil
+	}
 	childIP := getRootlessPortChildIP(c)
 	logrus.Debugf("reloading rootless ports for container %s, childIP is %s", c.config.ID, childIP)
 
-	var conn net.Conn
-	var err error
-	// try three times to connect to the socket, maybe it is not ready yet
-	for i := 0; i < 3; i++ {
-		conn, err = net.Dial("unix", filepath.Join(c.runtime.config.Engine.TmpDir, "rp", c.config.ID))
-		if err == nil {
-			break
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
+	conn, err := openUnixSocket(filepath.Join(c.runtime.config.Engine.TmpDir, "rp", c.config.ID))
 	if err != nil {
 		// This is not a hard error for backwards compatibility. A container started
 		// with an old version did not created the rootlessport socket.

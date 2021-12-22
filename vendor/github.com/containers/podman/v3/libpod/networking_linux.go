@@ -185,7 +185,13 @@ func (r *RootlessCNI) Do(toRun func() error) error {
 				// if there is no symlink exit
 				break
 			}
-			resolvePath = filepath.Join(filepath.Dir(resolvePath), link)
+			if filepath.IsAbs(link) {
+				// link is as an absolute path
+				resolvePath = link
+			} else {
+				// link is as a relative, join it with the previous path
+				resolvePath = filepath.Join(filepath.Dir(resolvePath), link)
+			}
 			if strings.HasPrefix(resolvePath, "/run/") {
 				break
 			}
@@ -632,7 +638,6 @@ func (r *Runtime) configureNetNS(ctr *Container, ctrNS ns.NetNS) ([]*cnitypes.Re
 	}
 
 	podName := getCNIPodName(ctr)
-
 	networks, _, err := ctr.networks()
 	if err != nil {
 		return nil, err
@@ -713,6 +718,7 @@ func (r *Runtime) setupRootlessNetNS(ctr *Container) error {
 		// set up port forwarder for CNI-in-slirp4netns
 		netnsPath := ctr.state.NetNS.Path()
 		// TODO: support slirp4netns port forwarder as well
+		// make sure to fix this container.handleRestartPolicy() as well
 		return r.setupRootlessPortMappingViaRLK(ctr, netnsPath)
 	}
 	return nil
@@ -1015,7 +1021,7 @@ func (c *Container) getContainerNetworkInfo() (*define.InspectNetworkSettings, e
 	}
 
 	settings := new(define.InspectNetworkSettings)
-	settings.Ports = makeInspectPortBindings(c.config.PortMappings)
+	settings.Ports = makeInspectPortBindings(c.config.PortMappings, c.config.ExposedPorts)
 
 	networks, isDefault, err := c.networks()
 	if err != nil {
@@ -1235,7 +1241,7 @@ func (c *Container) NetworkDisconnect(nameOrID, netName string, force bool) erro
 		return err
 	}
 
-	// OCICNI will set the loopback adpter down on teardown so we should set it up again
+	// OCICNI will set the loopback adapter down on teardown so we should set it up again
 	err = c.state.NetNS.Do(func(_ ns.NetNS) error {
 		link, err := netlink.LinkByName("lo")
 		if err != nil {
@@ -1245,7 +1251,7 @@ func (c *Container) NetworkDisconnect(nameOrID, netName string, force bool) erro
 		return err
 	})
 	if err != nil {
-		logrus.Warnf("failed to set loopback adpter up in the container: %v", err)
+		logrus.Warnf("failed to set loopback adapter up in the container: %v", err)
 	}
 	// Reload ports when there are still connected networks, maybe we removed the network interface with the child ip.
 	// Reloading without connected networks does not make sense, so we can skip this step.

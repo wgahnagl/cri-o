@@ -6,10 +6,12 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/containernetworking/cni/pkg/types"
 	cnitypes "github.com/containernetworking/cni/pkg/types/current"
+	"github.com/containers/common/pkg/config"
 	"github.com/containers/common/pkg/secrets"
 	"github.com/containers/image/v5/manifest"
 	"github.com/containers/podman/v3/libpod/define"
@@ -159,6 +161,9 @@ type ContainerState struct {
 	// OOMKilled indicates that the container was killed as it ran out of
 	// memory
 	OOMKilled bool `json:"oomKilled,omitempty"`
+	// Checkpointed indicates that the container was stopped by a checkpoint
+	// operation.
+	Checkpointed bool `json:"checkpointed,omitempty"`
 	// PID is the PID of a running container
 	PID int `json:"pid,omitempty"`
 	// ConmonPID is the PID of the container's conmon
@@ -244,12 +249,14 @@ type ContainerImageVolume struct {
 type ContainerSecret struct {
 	// Secret is the secret
 	*secrets.Secret
-	// UID is tbe UID of the secret file
+	// UID is the UID of the secret file
 	UID uint32
 	// GID is the GID of the secret file
 	GID uint32
 	// Mode is the mode of the secret file
 	Mode uint32
+	// Secret target inside container
+	Target string
 }
 
 // ContainerNetworkDescriptions describes the relationship between the CNI
@@ -970,6 +977,11 @@ func (c *Container) cGroupPath() (string, error) {
 	procPath := fmt.Sprintf("/proc/%d/cgroup", c.state.PID)
 	lines, err := ioutil.ReadFile(procPath)
 	if err != nil {
+		// If the file doesn't exist, it means the container could have been terminated
+		// so report it.
+		if os.IsNotExist(err) {
+			return "", errors.Wrapf(define.ErrCtrStopped, "cannot get cgroup path unless container %s is running", c.ID())
+		}
 		return "", err
 	}
 
@@ -994,6 +1006,29 @@ func (c *Container) cGroupPath() (string, error) {
 
 	if len(cgroupPath) == 0 {
 		return "", errors.Errorf("could not find any cgroup in %q", procPath)
+	}
+
+	cgroupManager := c.CgroupManager()
+	switch {
+	case c.config.CgroupsMode == cgroupSplit:
+		name := fmt.Sprintf("/libpod-payload-%s/", c.ID())
+		if index := strings.LastIndex(cgroupPath, name); index >= 0 {
+			return cgroupPath[:index+len(name)-1], nil
+		}
+	case cgroupManager == config.CgroupfsCgroupsManager:
+		name := fmt.Sprintf("/libpod-%s/", c.ID())
+		if index := strings.LastIndex(cgroupPath, name); index >= 0 {
+			return cgroupPath[:index+len(name)-1], nil
+		}
+	case cgroupManager == config.SystemdCgroupsManager:
+		// When running under systemd, try to detect the scope that was requested
+		// to be created.  It improves the heuristic since we report the first
+		// cgroup that was created instead of the cgroup where PID 1 might have
+		// moved to.
+		name := fmt.Sprintf("/libpod-%s.scope/", c.ID())
+		if index := strings.LastIndex(cgroupPath, name); index >= 0 {
+			return cgroupPath[:index+len(name)-1], nil
+		}
 	}
 
 	return cgroupPath, nil
@@ -1024,8 +1059,8 @@ func (c *Container) RWSize() (int64, error) {
 }
 
 // IDMappings returns the UID/GID mapping used for the container
-func (c *Container) IDMappings() (storage.IDMappingOptions, error) {
-	return c.config.IDMappings, nil
+func (c *Container) IDMappings() storage.IDMappingOptions {
+	return c.config.IDMappings
 }
 
 // RootUID returns the root user mapping from container
@@ -1057,6 +1092,11 @@ func (c *Container) RootGID() int {
 // IsInfra returns whether the container is an infra container
 func (c *Container) IsInfra() bool {
 	return c.config.IsInfra
+}
+
+// IsInitCtr returns whether the container is an init container
+func (c *Container) IsInitCtr() bool {
+	return len(c.config.InitContainerType) > 0
 }
 
 // IsReadOnly returns whether the container is running in read only mode
