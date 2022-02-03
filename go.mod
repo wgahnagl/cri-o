@@ -3,11 +3,11 @@ go 1.15
 module github.com/cri-o/cri-o
 
 require (
-	github.com/BurntSushi/toml v0.4.1
+	github.com/BurntSushi/toml v1.0.0
 	github.com/Microsoft/go-winio v0.5.1
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/containerd/cgroups v1.0.2
-	github.com/containerd/containerd v1.5.8
+	github.com/containerd/containerd v1.5.9
 	github.com/containerd/cri-containerd v1.19.0
 	github.com/containerd/ttrpc v1.1.0
 	github.com/containerd/typeurl v1.0.2
@@ -16,10 +16,10 @@ require (
 	github.com/containers/buildah v1.23.1
 	github.com/containers/common v0.46.1-0.20211001143714-161e078e4c7f
 	github.com/containers/conmon v2.0.20+incompatible
-	github.com/containers/image/v5 v5.17.0
+	github.com/containers/image/v5 v5.19.1
 	github.com/containers/ocicrypt v1.1.2
 	github.com/containers/podman/v3 v3.2.0-rc1.0.20211005134800-8bcc086b1b9d
-	github.com/containers/storage v1.37.0
+	github.com/containers/storage v1.38.2
 	github.com/coreos/go-systemd/v22 v22.3.2
 	github.com/cpuguy83/go-md2man v1.0.10
 	github.com/creack/pty v1.1.17
@@ -42,11 +42,11 @@ require (
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.17.0
 	github.com/opencontainers/go-digest v1.0.0
-	github.com/opencontainers/image-spec v1.0.2-0.20210819154149-5ad6f50d6283
-	github.com/opencontainers/runc v1.0.3
+	github.com/opencontainers/image-spec v1.0.3-0.20211202193544-a5463b7f9c84
+	github.com/opencontainers/runc v1.1.0
 	github.com/opencontainers/runtime-spec v1.0.3-0.20210709190330-896175883324
 	github.com/opencontainers/runtime-tools v0.9.1-0.20210326182921-59cdde06764b
-	github.com/opencontainers/selinux v1.9.1
+	github.com/opencontainers/selinux v1.10.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
 	github.com/psampaz/go-mod-outdated v0.8.0
@@ -60,9 +60,9 @@ require (
 	go.opentelemetry.io/otel v1.2.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.2.0
 	go.opentelemetry.io/otel/sdk v1.2.0
-	golang.org/x/net v0.0.0-20211005001312-d4b1ae081e3b
+	golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20211004093028-2c5d950f24ef
+	golang.org/x/sys v0.0.0-20220114195835-da31bd327af9
 	google.golang.org/grpc v1.42.0
 	k8s.io/api v0.22.2
 	k8s.io/apimachinery v0.22.2
