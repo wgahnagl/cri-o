@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -165,6 +167,8 @@ func httpBasicAttributesFromHTTPRequest(request *http.Request) []attribute.KeyVa
 
 	if request.Host != "" {
 		attrs = append(attrs, HTTPHostKey.String(request.Host))
+	} else if request.URL != nil && request.URL.Host != "" {
+		attrs = append(attrs, HTTPHostKey.String(request.URL.Host))
 	}
 
 	flavor := ""
@@ -265,6 +269,21 @@ func SpanStatusFromHTTPStatusCode(code int) (codes.Code, string) {
 	spanCode, valid := validateHTTPStatusCode(code)
 	if !valid {
 		return spanCode, fmt.Sprintf("Invalid HTTP status code %d", code)
+	}
+	return spanCode, ""
+}
+
+// SpanStatusFromHTTPStatusCodeAndSpanKind generates a status code and a message
+// as specified by the OpenTelemetry specification for a span.
+// Exclude 4xx for SERVER to set the appropriate status.
+func SpanStatusFromHTTPStatusCodeAndSpanKind(code int, spanKind trace.SpanKind) (codes.Code, string) {
+	spanCode, valid := validateHTTPStatusCode(code)
+	if !valid {
+		return spanCode, fmt.Sprintf("Invalid HTTP status code %d", code)
+	}
+	category := code / 100
+	if spanKind == trace.SpanKindServer && category == 4 {
+		return codes.Unset, ""
 	}
 	return spanCode, ""
 }
