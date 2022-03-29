@@ -29,7 +29,7 @@ require (
 	github.com/docker/go-units v0.4.0
 	github.com/emicklei/go-restful v2.15.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.1
-	github.com/go-logr/logr v1.2.0
+	github.com/go-logr/logr v1.2.3
 	github.com/go-zoo/bone v1.3.0
 	github.com/godbus/dbus/v5 v5.0.6
 	github.com/gogo/protobuf v1.3.2
@@ -52,18 +52,18 @@ require (
 	github.com/psampaz/go-mod-outdated v0.8.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/soheilhy/cmux v0.1.5
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.7.1
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 	github.com/urfave/cli/v2 v2.3.0
 	github.com/vishvananda/netlink v1.1.1-0.20210811191823-e1a867c6b452
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.26.1
-	go.opentelemetry.io/otel v1.2.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.31.0
+	go.opentelemetry.io/otel v1.6.1
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.2.0
 	go.opentelemetry.io/otel/sdk v1.2.0
 	golang.org/x/net v0.0.0-20211005001312-d4b1ae081e3b
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20211004093028-2c5d950f24ef
-	google.golang.org/grpc v1.42.0
+	google.golang.org/grpc v1.45.0
 	k8s.io/api v0.22.2
 	k8s.io/apimachinery v0.22.2
 	k8s.io/client-go v0.22.2
