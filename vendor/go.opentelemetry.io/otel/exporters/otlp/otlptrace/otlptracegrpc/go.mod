@@ -1,14 +1,18 @@
 module go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc
 
-go 1.15
+go 1.16
 
 require (
-	github.com/stretchr/testify v1.7.0
-	go.opentelemetry.io/otel v1.2.0
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.2.0
-	go.opentelemetry.io/otel/sdk v1.2.0
-	go.opentelemetry.io/proto/otlp v0.10.0
-	google.golang.org/grpc v1.42.0
+	github.com/stretchr/testify v1.7.1
+	go.opentelemetry.io/otel v1.6.2
+	go.opentelemetry.io/otel/exporters/otlp/internal/retry v1.6.2
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.6.2
+	go.opentelemetry.io/otel/sdk v1.6.2
+	go.opentelemetry.io/proto/otlp v0.15.0
+	go.uber.org/goleak v1.1.12
+	google.golang.org/genproto v0.0.0-20211118181313-81c1377c94b1
+	google.golang.org/grpc v1.45.0
+	google.golang.org/protobuf v1.28.0
 )
 
 replace go.opentelemetry.io/otel => ../../../..
@@ -32,8 +36,6 @@ replace go.opentelemetry.io/otel/example/namedtracer => ../../../../example/name
 replace go.opentelemetry.io/otel/example/opencensus => ../../../../example/opencensus
 
 replace go.opentelemetry.io/otel/example/otel-collector => ../../../../example/otel-collector
-
-replace go.opentelemetry.io/otel/example/prom-collector => ../../../../example/prom-collector
 
 replace go.opentelemetry.io/otel/example/prometheus => ../../../../example/prometheus
 
@@ -74,3 +76,5 @@ replace go.opentelemetry.io/otel/bridge/opencensus/test => ../../../../bridge/op
 replace go.opentelemetry.io/otel/example/fib => ../../../../example/fib
 
 replace go.opentelemetry.io/otel/schema => ../../../../schema
+
+replace go.opentelemetry.io/otel/exporters/otlp/internal/retry => ../../internal/retry
