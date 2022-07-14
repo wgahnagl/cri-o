@@ -34,6 +34,9 @@
 
     - name: run k8s e2e tests
       include: "e2e.yml"
+      environment:
+        KUBECONFIG: /var/run/kubernetes/admin.kubeconfig
+
 
 - hosts: localhost, all
   remote_user: root
@@ -67,3 +70,5 @@
 
     - name: run k8s e2e features tests
       include: "e2e-features.yml"
+      environment:
+        KUBECONFIG: /var/run/kubernetes/admin.kubeconfig
