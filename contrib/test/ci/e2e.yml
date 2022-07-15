@@ -43,6 +43,8 @@
 
 - name: run e2e tests
   shell: "{{ e2e_shell_cmd | regex_replace('\\s+', ' ') }}"
+  environment:
+    KUBECONFIG: /var/run/kubernetes/admin.kubeconfig
   args:
     chdir: "{{ ansible_env.GOPATH }}/src/k8s.io/kubernetes"
   async: '{{ 60 * 60 * 4 }}'  # seconds
