@@ -1,6 +1,7 @@
 ---
 - hosts: localhost, all
-  remote_user: root
+  become: yes
+  become_user: root
   environment:
     GOPATH: /usr/go
   connection: local

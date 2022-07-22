@@ -42,6 +42,7 @@
       #- oci-umount
       - openssl
       - openssl-devel
+      - parallel
       - pkgconfig
       - python3
       #- python2-crypto
