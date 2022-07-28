@@ -8,10 +8,7 @@
   vars_files:
     - "{{ playbook_dir }}/vars.yml"
   tasks:
-    - name: set up the system
-      include: "setup.yml"
-
-    - name: build crio 
+    - name: start crio 
       include: "build/cri-o.yml" 
 
     - name: run cri-o integration tests

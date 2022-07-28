@@ -14,14 +14,6 @@
     - name: build and run crio 
       include: "build/cri-o.yml"
 
-    - name: enable and start CRI-O
-      become: yes
-      systemd:
-        name: crio
-        state: started
-        enabled: yes
-        daemon_reload: yes
-
     - name: run k8s e2e tests
       include: "e2e.yml"
       environment:
@@ -46,13 +38,6 @@
     - name: build and run crio 
       include: "build/cri-o.yml"
 
-    - name: enable and start CRI-O
-      become: yes
-      systemd:
-        name: crio
-        state: started
-        enabled: yes
-        daemon_reload: yes
     - name: clone build and install kubernetes
       include: "build/kubernetes.yml"
       vars:

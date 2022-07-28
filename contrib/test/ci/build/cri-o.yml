@@ -11,8 +11,8 @@
     path: "/home/deadbeef/cri-o.tar.gz"
   register: source_tar
 
-- name: extract cri-o
-  unarchive:
+- name: extract cri-o 
+  unarchive: 
     src: "/home/deadbeef/cri-o.tar.gz"
     dest: "{{ ansible_env.GOPATH }}/src/github.com/cri-o/cri-o"
   when: source_tar.stat.exists
