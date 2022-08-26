@@ -528,7 +528,7 @@ github.com/coreos/go-systemd/v22/sdjournal
 ## explicit; go 1.12
 github.com/cpuguy83/go-md2man
 github.com/cpuguy83/go-md2man/md2man
-# github.com/cpuguy83/go-md2man/v2 v2.0.1
+# github.com/cpuguy83/go-md2man/v2 v2.0.2
 ## explicit; go 1.11
 github.com/cpuguy83/go-md2man/v2/md2man
 # github.com/creack/pty v1.1.18
@@ -1174,13 +1174,13 @@ github.com/shibumi/go-pathspec
 ## explicit; go 1.15
 github.com/shirou/gopsutil/v3/disk
 github.com/shirou/gopsutil/v3/internal/common
-# github.com/sirupsen/logrus v1.8.1
+# github.com/sirupsen/logrus v1.9.0
 ## explicit; go 1.13
 github.com/sirupsen/logrus
 # github.com/soheilhy/cmux v0.1.5
 ## explicit; go 1.11
 github.com/soheilhy/cmux
-# github.com/spf13/cobra v1.4.0
+# github.com/spf13/cobra v1.5.0
 ## explicit; go 1.15
 github.com/spf13/cobra
 # github.com/spf13/pflag v1.0.5
@@ -1196,7 +1196,7 @@ github.com/spiegel-im-spiegel/go-cvss/v3/metric
 # github.com/stefanberger/go-pkcs11uri v0.0.0-20201008174630-78d3cae3a980
 ## explicit
 github.com/stefanberger/go-pkcs11uri
-# github.com/stretchr/testify v1.7.2
+# github.com/stretchr/testify v1.8.0
 ## explicit; go 1.13
 github.com/stretchr/testify/assert
 # github.com/sylabs/sif/v2 v2.7.0
@@ -1383,7 +1383,7 @@ golang.org/x/oauth2/jwt
 ## explicit
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.0.0-20220608164250-635b8c9b7f68
+# golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
 ## explicit; go 1.17
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
@@ -2069,7 +2069,7 @@ sigs.k8s.io/release-sdk/github
 sigs.k8s.io/release-sdk/github/internal
 sigs.k8s.io/release-sdk/object
 sigs.k8s.io/release-sdk/regex
-# sigs.k8s.io/release-utils v0.7.0
+# sigs.k8s.io/release-utils v0.7.3
 ## explicit; go 1.18
 sigs.k8s.io/release-utils/command
 sigs.k8s.io/release-utils/env
