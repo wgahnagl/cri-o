@@ -47,9 +47,6 @@
       defaultTestContainerImage: {{ critest_mirror_repo }}/busybox:1
       webServerTestImage: {{ critest_mirror_repo }}/nginx:1.18
 
-- name: clone and start crio 
-  include: build/cri-o.yml
-
 - name: run critest validation
   become: yes
   shell: "critest --report-dir={{ artifacts }} --runtime-endpoint unix:///var/run/crio/crio.sock --image-endpoint unix:///var/run/crio/crio.sock --ginkgo.flakeAttempts=3 --test-images-file=critest-images.yml"
