@@ -8,9 +8,6 @@
   tags:
     - e2e
   tasks:
-    - name: setup
-      include: "setup.yml"
-
     - name: build and run crio 
       include: "build/cri-o.yml"
 
@@ -32,9 +29,6 @@
   tags:
     - e2e-features
   tasks:
-    - name: setup
-      include: "setup.yml" 
-
     - name: build and run crio 
       include: "build/cri-o.yml"
 
