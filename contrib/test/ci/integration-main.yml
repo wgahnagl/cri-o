@@ -10,7 +10,7 @@
   tasks:
     - name: start crio 
       include: "build/cri-o.yml" 
-
+   
     - name: run cri-o integration tests
       include: "integration.yml"
 
