@@ -87,6 +87,29 @@
   become: yes
   yum:
     state: present
+    enablerepo: codeready-builder-for-rhel-9-x86_64-rpms
+    name:
+      - glibc-static
+      - gpgme-devel
+      - yajl-devel
+      - libsemanage-devel
+  when: ansible_distribution == 'RedHat'
+
+- name: Install optional packages For CentOS Stream 9
+  become: yes
+  yum:
+    state: present
+    enablerepo: crb
+    name:
+      - glibc-static
+      - gpgme-devel
+  when: ansible_distribution == 'CentOS' and ansible_distribution_release == "Stream" and ansible_distribution_major_version|int > 8
+
+- name: Install optional packages For Fedora/CentOS 8
+>>>>>>> 88782d59c (contrib/test/ci: fix SELinux permission issue on RHEL9)
+  become: yes
+  yum:
+    state: present
     enablerepo: powertools
     name:
       - glibc-static
