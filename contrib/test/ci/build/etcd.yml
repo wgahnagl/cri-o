@@ -1,13 +1,13 @@
 ---
 
 - name: get etcd version from kubernetes github 
-  shell: 'curl -s  "https://raw.githubusercontent.com/kubernetes/kubernetes/3ccce7cf7812e7174801c4269019246cdb763cec/hack/lib/etcd.sh" | grep ETCD_VERSION: | grep -o "[1-9]\.[1-9]\.[1-9]"'
+  shell: wget -q -O- https://api.github.com/repos/coreos/etcd/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
   register: etcd_version 
   
 # TODO: change for other architectures 
 - name: download etcd
   get_url: 
-    url: "https://github.com/coreos/etcd/releases/download/v{{ etcd_version.stdout }}/etcd-v{{ etcd_version.stdout }}-linux-amd64.tar.gz"
+    url: "https://github.com/coreos/etcd/releases/download/{{ etcd_version.stdout }}/etcd-{{ etcd_version.stdout }}-linux-amd64.tar.gz"
     dest: "{{ ansible_env.GOPATH }}/src/k8s.io/kubernetes/third_party"
 
 - name: prevent downloading in the etcd script
