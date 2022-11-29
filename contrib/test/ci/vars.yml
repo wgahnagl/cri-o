@@ -1,7 +1,7 @@
 ---
 
 # When False, disable SELinux on the system during specific tests
-integration_selinux_enabled: True
+integration_selinux_enabled: False
 e2e_selinux_enabled: False
 node_e2e_selinux_enabled: False
 manage_ns_lifecycle: True
