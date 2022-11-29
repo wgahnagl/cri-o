@@ -23,7 +23,7 @@ func Default() Capabilities {
 		"SETPCAP",
 		"NET_BIND_SERVICE",
 		"KILL",
-		"CAP_NET_RAW",
+		"NET_RAW",
 	}
 }
 
