@@ -358,8 +358,9 @@ func (d *dockerImageDestination) TryReusingBlobWithOptions(ctx context.Context, 
 		// Checking candidateRepo, and mounting from it, requires an
 		// expanded token scope.
 		extraScope := &authScope{
-			remoteName: reference.Path(candidateRepo),
-			actions:    "pull",
+			resourceType: "repository",
+			remoteName:   reference.Path(candidateRepo),
+			actions:      "pull",
 		}
 		// This existence check is not, strictly speaking, necessary: We only _really_ need it to get the blob size, and we could record that in the cache instead.
 		// But a "failed" d.mountBlob currently leaves around an unterminated server-side upload, which we would try to cancel.
@@ -652,6 +653,7 @@ func (d *dockerImageDestination) putSignaturesToSigstoreAttachments(ctx context.
 			Digest:    "", // We will fill this in later.
 			Size:      0,
 		}, nil)
+		ociConfig.RootFS.Type = "layers"
 	} else {
 		logrus.Debugf("Fetching sigstore attachment config %s", ociManifest.Config.Digest.String())
 		// We don’t benefit from a real BlobInfoCache here because we never try to reuse/mount configs.
