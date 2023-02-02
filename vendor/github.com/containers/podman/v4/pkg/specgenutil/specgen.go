@@ -13,14 +13,12 @@ import (
 	"github.com/containers/image/v5/manifest"
 	"github.com/containers/podman/v4/cmd/podman/parse"
 	"github.com/containers/podman/v4/libpod/define"
-	ann "github.com/containers/podman/v4/pkg/annotations"
 	"github.com/containers/podman/v4/pkg/domain/entities"
 	envLib "github.com/containers/podman/v4/pkg/env"
 	"github.com/containers/podman/v4/pkg/namespaces"
 	"github.com/containers/podman/v4/pkg/specgen"
 	systemdDefine "github.com/containers/podman/v4/pkg/systemd/define"
 	"github.com/containers/podman/v4/pkg/util"
-	"github.com/docker/docker/opts"
 	"github.com/docker/go-units"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -74,14 +72,21 @@ func getCPULimits(c *entities.ContainerCreateOptions) *specs.LinuxCPU {
 func getIOLimits(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions) (*specs.LinuxBlockIO, error) {
 	var err error
 	io := &specs.LinuxBlockIO{}
+	if s.ResourceLimits == nil {
+		s.ResourceLimits = &specs.LinuxResources{}
+	}
 	hasLimits := false
 	if b := c.BlkIOWeight; len(b) > 0 {
+		if s.ResourceLimits.BlockIO == nil {
+			s.ResourceLimits.BlockIO = &specs.LinuxBlockIO{}
+		}
 		u, err := strconv.ParseUint(b, 10, 16)
 		if err != nil {
 			return nil, fmt.Errorf("invalid value for blkio-weight: %w", err)
 		}
 		nu := uint16(u)
 		io.Weight = &nu
+		s.ResourceLimits.BlockIO.Weight = &nu
 		hasLimits = true
 	}
 
@@ -250,7 +255,7 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		if c.NoHealthCheck {
 			return errors.New("cannot specify both --no-healthcheck and --health-cmd")
 		}
-		s.HealthConfig, err = makeHealthCheckFromCli(c.HealthCmd, c.HealthInterval, c.HealthRetries, c.HealthTimeout, c.HealthStartPeriod)
+		s.HealthConfig, err = makeHealthCheckFromCli(c.HealthCmd, c.HealthInterval, c.HealthRetries, c.HealthTimeout, c.HealthStartPeriod, false)
 		if err != nil {
 			return err
 		}
@@ -259,6 +264,32 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 			Test: []string{"NONE"},
 		}
 	}
+
+	onFailureAction, err := define.ParseHealthCheckOnFailureAction(c.HealthOnFailure)
+	if err != nil {
+		return err
+	}
+	s.HealthCheckOnFailureAction = onFailureAction
+
+	if c.StartupHCCmd != "" {
+		if c.NoHealthCheck {
+			return errors.New("cannot specify both --no-healthcheck and --health-startup-cmd")
+		}
+		// The hardcoded "1s" will be discarded, as the startup
+		// healthcheck does not have a period. So just hardcode
+		// something that parses correctly.
+		tmpHcConfig, err := makeHealthCheckFromCli(c.StartupHCCmd, c.StartupHCInterval, c.StartupHCRetries, c.StartupHCTimeout, "1s", true)
+		if err != nil {
+			return err
+		}
+		s.StartupHealthConfig = new(define.StartupHealthCheck)
+		s.StartupHealthConfig.Test = tmpHcConfig.Test
+		s.StartupHealthConfig.Interval = tmpHcConfig.Interval
+		s.StartupHealthConfig.Timeout = tmpHcConfig.Timeout
+		s.StartupHealthConfig.Retries = tmpHcConfig.Retries
+		s.StartupHealthConfig.Successes = int(c.StartupHCSuccesses)
+	}
+
 	if err := setNamespaces(s, c); err != nil {
 		return err
 	}
@@ -355,10 +386,7 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 
 	// First transform the os env into a map. We need it for the labels later in
 	// any case.
-	osEnv, err := envLib.ParseSlice(os.Environ())
-	if err != nil {
-		return fmt.Errorf("error parsing host environment variables: %w", err)
-	}
+	osEnv := envLib.Map(os.Environ())
 
 	if !s.EnvHost {
 		s.EnvHost = c.EnvHost
@@ -403,12 +431,6 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 
 	// ANNOTATIONS
 	annotations := make(map[string]string)
-
-	// First, add our default annotations
-	annotations[ann.TTY] = "false"
-	if c.TTY {
-		annotations[ann.TTY] = "true"
-	}
 
 	// Last, add user annotations
 	for _, annotation := range c.Annotation {
@@ -457,11 +479,12 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 
 	// SHM Size
 	if c.ShmSize != "" {
-		var m opts.MemBytes
-		if err := m.Set(c.ShmSize); err != nil {
+		val, err := units.RAMInBytes(c.ShmSize)
+
+		if err != nil {
 			return fmt.Errorf("unable to translate --shm-size: %w", err)
 		}
-		val := m.Value()
+
 		s.ShmSize = &val
 	}
 
@@ -503,44 +526,9 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		s.ResourceLimits = &specs.LinuxResources{}
 	}
 
-	if s.ResourceLimits.Memory == nil || (len(c.Memory) != 0 || len(c.MemoryReservation) != 0 || len(c.MemorySwap) != 0 || c.MemorySwappiness != 0) {
-		s.ResourceLimits.Memory, err = getMemoryLimits(c)
-		if err != nil {
-			return err
-		}
-	}
-	if s.ResourceLimits.BlockIO == nil || (len(c.BlkIOWeight) != 0 || len(c.BlkIOWeightDevice) != 0) {
-		s.ResourceLimits.BlockIO, err = getIOLimits(s, c)
-		if err != nil {
-			return err
-		}
-	}
-	if c.PIDsLimit != nil {
-		pids := specs.LinuxPids{
-			Limit: *c.PIDsLimit,
-		}
-
-		s.ResourceLimits.Pids = &pids
-	}
-
-	if s.ResourceLimits.CPU == nil || (c.CPUPeriod != 0 || c.CPUQuota != 0 || c.CPURTPeriod != 0 || c.CPURTRuntime != 0 || c.CPUS != 0 || len(c.CPUSetCPUs) != 0 || len(c.CPUSetMems) != 0 || c.CPUShares != 0) {
-		s.ResourceLimits.CPU = getCPULimits(c)
-	}
-
-	unifieds := make(map[string]string)
-	for _, unified := range c.CgroupConf {
-		splitUnified := strings.SplitN(unified, "=", 2)
-		if len(splitUnified) < 2 {
-			return errors.New("--cgroup-conf must be formatted KEY=VALUE")
-		}
-		unifieds[splitUnified[0]] = splitUnified[1]
-	}
-	if len(unifieds) > 0 {
-		s.ResourceLimits.Unified = unifieds
-	}
-
-	if s.ResourceLimits.CPU == nil && s.ResourceLimits.Pids == nil && s.ResourceLimits.BlockIO == nil && s.ResourceLimits.Memory == nil && s.ResourceLimits.Unified == nil {
-		s.ResourceLimits = nil
+	s.ResourceLimits, err = GetResources(s, c)
+	if err != nil {
+		return err
 	}
 
 	if s.LogConfiguration == nil {
@@ -598,10 +586,11 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 		s.DependencyContainers = c.Requires
 	}
 
-	// TODO
-	// outside of specgen and oci though
-	// defaults to true, check spec/storage
-	// s.readonly = c.ReadOnlyTmpFS
+	// Only add ReadWrite tmpfs mounts iff the container is
+	// being run ReadOnly and ReadWriteTmpFS is not disabled,
+	// (user specifying --read-only-tmpfs=false.)
+	s.ReadWriteTmpfs = c.ReadOnly && c.ReadWriteTmpFS
+
 	//  TODO convert to map?
 	// check if key=value and convert
 	sysmap := make(map[string]string)
@@ -681,7 +670,7 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 
 	// Only add read-only tmpfs mounts in case that we are read-only and the
 	// read-only tmpfs flag has been set.
-	mounts, volumes, overlayVolumes, imageVolumes, err := parseVolumes(c.Volume, c.Mount, c.TmpFS, c.ReadOnlyTmpFS && c.ReadOnly)
+	mounts, volumes, overlayVolumes, imageVolumes, err := parseVolumes(c.Volume, c.Mount, c.TmpFS)
 	if err != nil {
 		return err
 	}
@@ -786,7 +775,7 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 			}
 			retries, err := strconv.Atoi(splitRestart[1])
 			if err != nil {
-				return fmt.Errorf("error parsing restart policy retry count: %w", err)
+				return fmt.Errorf("parsing restart policy retry count: %w", err)
 			}
 			if retries < 0 {
 				return errors.New("must specify restart policy retry count as a number greater than 0")
@@ -832,6 +821,9 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 	if !s.Volatile {
 		s.Volatile = c.Rm
 	}
+	if len(s.EnvMerge) == 0 || len(c.EnvMerge) != 0 {
+		s.EnvMerge = c.EnvMerge
+	}
 	if len(s.UnsetEnv) == 0 || len(c.UnsetEnv) != 0 {
 		s.UnsetEnv = c.UnsetEnv
 	}
@@ -859,7 +851,7 @@ func FillOutSpecGen(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions
 	return nil
 }
 
-func makeHealthCheckFromCli(inCmd, interval string, retries uint, timeout, startPeriod string) (*manifest.Schema2HealthConfig, error) {
+func makeHealthCheckFromCli(inCmd, interval string, retries uint, timeout, startPeriod string, isStartup bool) (*manifest.Schema2HealthConfig, error) {
 	cmdArr := []string{}
 	isArr := true
 	err := json.Unmarshal([]byte(inCmd), &cmdArr) // array unmarshalling
@@ -907,7 +899,7 @@ func makeHealthCheckFromCli(inCmd, interval string, retries uint, timeout, start
 
 	hc.Interval = intervalDuration
 
-	if retries < 1 {
+	if retries < 1 && !isStartup {
 		return nil, errors.New("healthcheck-retries must be greater than 0")
 	}
 	hc.Retries = int(retries)
@@ -1163,4 +1155,48 @@ func parseLinuxResourcesDeviceAccess(device string) (specs.LinuxDeviceCgroup, er
 		Minor:  minor,
 		Access: access,
 	}, nil
+}
+
+func GetResources(s *specgen.SpecGenerator, c *entities.ContainerCreateOptions) (*specs.LinuxResources, error) {
+	var err error
+	if s.ResourceLimits.Memory == nil || (len(c.Memory) != 0 || len(c.MemoryReservation) != 0 || len(c.MemorySwap) != 0 || c.MemorySwappiness != 0) {
+		s.ResourceLimits.Memory, err = getMemoryLimits(c)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if s.ResourceLimits.BlockIO == nil || (len(c.BlkIOWeight) != 0 || len(c.BlkIOWeightDevice) != 0 || len(c.DeviceReadBPs) != 0 || len(c.DeviceWriteBPs) != 0) {
+		s.ResourceLimits.BlockIO, err = getIOLimits(s, c)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if c.PIDsLimit != nil {
+		pids := specs.LinuxPids{
+			Limit: *c.PIDsLimit,
+		}
+
+		s.ResourceLimits.Pids = &pids
+	}
+
+	if s.ResourceLimits.CPU == nil || (c.CPUPeriod != 0 || c.CPUQuota != 0 || c.CPURTPeriod != 0 || c.CPURTRuntime != 0 || c.CPUS != 0 || len(c.CPUSetCPUs) != 0 || len(c.CPUSetMems) != 0 || c.CPUShares != 0) {
+		s.ResourceLimits.CPU = getCPULimits(c)
+	}
+
+	unifieds := make(map[string]string)
+	for _, unified := range c.CgroupConf {
+		splitUnified := strings.SplitN(unified, "=", 2)
+		if len(splitUnified) < 2 {
+			return nil, errors.New("--cgroup-conf must be formatted KEY=VALUE")
+		}
+		unifieds[splitUnified[0]] = splitUnified[1]
+	}
+	if len(unifieds) > 0 {
+		s.ResourceLimits.Unified = unifieds
+	}
+
+	if s.ResourceLimits.CPU == nil && s.ResourceLimits.Pids == nil && s.ResourceLimits.BlockIO == nil && s.ResourceLimits.Memory == nil && s.ResourceLimits.Unified == nil {
+		s.ResourceLimits = nil
+	}
+	return s.ResourceLimits, nil
 }

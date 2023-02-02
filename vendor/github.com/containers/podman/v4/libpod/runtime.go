@@ -2,15 +2,12 @@ package libpod
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -38,21 +35,11 @@ import (
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/containers/podman/v4/utils"
 	"github.com/containers/storage"
+	"github.com/containers/storage/pkg/lockfile"
 	"github.com/containers/storage/pkg/unshare"
 	"github.com/docker/docker/pkg/namesgenerator"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
-)
-
-const (
-	// conmonMinMajorVersion is the major version required for conmon.
-	conmonMinMajorVersion = 2
-
-	// conmonMinMinorVersion is the minor version required for conmon.
-	conmonMinMinorVersion = 0
-
-	// conmonMinPatchVersion is the sub-minor version required for conmon.
-	conmonMinPatchVersion = 24
 )
 
 // A RuntimeOption is a functional option which alters the Runtime created by
@@ -127,6 +114,13 @@ type Runtime struct {
 	secretsManager *secrets.SecretsManager
 }
 
+func init() {
+	// generateName calls namesgenerator.GetRandomName which the
+	// global RNG from math/rand. Seed it here to make sure we
+	// don't get the same name every time.
+	rand.Seed(time.Now().UnixNano())
+}
+
 // SetXdgDirs ensures the XDG_RUNTIME_DIR env and XDG_CONFIG_HOME variables are set.
 // containers/image uses XDG_RUNTIME_DIR to locate the auth file, XDG_CONFIG_HOME is
 // use for the containers.conf configuration file.
@@ -172,7 +166,7 @@ func SetXdgDirs() error {
 // NewRuntime creates a new container runtime
 // Options can be passed to override the default configuration for the runtime
 func NewRuntime(ctx context.Context, options ...RuntimeOption) (*Runtime, error) {
-	conf, err := config.NewConfig("")
+	conf, err := config.Default()
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +208,7 @@ func newRuntimeFromConfig(conf *config.Config, options ...RuntimeOption) (*Runti
 	// Overwrite config with user-given configuration options
 	for _, opt := range options {
 		if err := opt(runtime); err != nil {
-			return nil, fmt.Errorf("error configuring runtime: %w", err)
+			return nil, fmt.Errorf("configuring runtime: %w", err)
 		}
 	}
 
@@ -230,7 +224,7 @@ func newRuntimeFromConfig(conf *config.Config, options ...RuntimeOption) (*Runti
 	}
 
 	if err := shutdown.Start(); err != nil {
-		return nil, fmt.Errorf("error starting shutdown signal handler: %w", err)
+		return nil, fmt.Errorf("starting shutdown signal handler: %w", err)
 	}
 
 	if err := makeRuntime(runtime); err != nil {
@@ -287,7 +281,7 @@ func getLockManager(runtime *Runtime) (lock.Manager, error) {
 				// Since we're renumbering, this is not fatal.
 				// Remove the earlier set of locks and recreate.
 				if err := os.Remove(filepath.Join("/dev/shm", lockPath)); err != nil {
-					return nil, fmt.Errorf("error removing libpod locks file %s: %w", lockPath, err)
+					return nil, fmt.Errorf("removing libpod locks file %s: %w", lockPath, err)
 				}
 
 				manager, err = lock.NewSHMLockManager(lockPath, runtime.config.Engine.NumLocks)
@@ -308,7 +302,7 @@ func getLockManager(runtime *Runtime) (lock.Manager, error) {
 // Sets up containers/storage, state store, OCI runtime
 func makeRuntime(runtime *Runtime) (retErr error) {
 	// Find a working conmon binary
-	cPath, err := findConmon(runtime.config.Engine.ConmonPath)
+	cPath, err := runtime.config.FindConmon()
 	if err != nil {
 		return err
 	}
@@ -325,8 +319,13 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	if err := os.MkdirAll(runtime.config.Engine.StaticDir, 0700); err != nil {
 		// The directory is allowed to exist
 		if !errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("error creating runtime static files directory: %w", err)
+			return fmt.Errorf("creating runtime static files directory: %w", err)
 		}
+	}
+
+	// Create the TmpDir if needed
+	if err := os.MkdirAll(runtime.config.Engine.TmpDir, 0751); err != nil {
+		return fmt.Errorf("creating runtime temporary files directory: %w", err)
 	}
 
 	// Set up the state.
@@ -341,7 +340,11 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	case config.SQLiteStateStore:
 		return fmt.Errorf("SQLite state is currently disabled: %w", define.ErrInvalidArg)
 	case config.BoltDBStateStore:
-		dbPath := filepath.Join(runtime.config.Engine.StaticDir, "bolt_state.db")
+		baseDir := runtime.config.Engine.StaticDir
+		if runtime.storageConfig.TransientStore {
+			baseDir = runtime.config.Engine.TmpDir
+		}
+		dbPath := filepath.Join(baseDir, "bolt_state.db")
 
 		state, err := NewBoltState(dbPath, runtime)
 		if err != nil {
@@ -369,7 +372,7 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 			}
 		}
 
-		return fmt.Errorf("error retrieving runtime configuration from database: %w", err)
+		return fmt.Errorf("retrieving runtime configuration from database: %w", err)
 	}
 
 	runtime.mergeDBConfig(dbConfig)
@@ -398,6 +401,7 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	logrus.Debugf("Using static dir %s", runtime.config.Engine.StaticDir)
 	logrus.Debugf("Using tmp dir %s", runtime.config.Engine.TmpDir)
 	logrus.Debugf("Using volume path %s", runtime.config.Engine.VolumePath)
+	logrus.Debugf("Using transient store: %v", runtime.storageConfig.TransientStore)
 
 	// Validate our config against the database, now that we've set our
 	// final storage configuration
@@ -412,17 +416,18 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	}
 
 	if err := runtime.state.SetNamespace(runtime.config.Engine.Namespace); err != nil {
-		return fmt.Errorf("error setting libpod namespace in state: %w", err)
+		return fmt.Errorf("setting libpod namespace in state: %w", err)
 	}
 	logrus.Debugf("Set libpod namespace to %q", runtime.config.Engine.Namespace)
 
-	hasCapSysAdmin, err := unshare.HasCapSysAdmin()
-	if err != nil {
-		return err
+	needsUserns := os.Geteuid() != 0
+	if !needsUserns {
+		hasCapSysAdmin, err := unshare.HasCapSysAdmin()
+		if err != nil {
+			return err
+		}
+		needsUserns = !hasCapSysAdmin
 	}
-
-	needsUserns := !hasCapSysAdmin
-
 	// Set up containers/storage
 	var store storage.Store
 	if needsUserns {
@@ -465,22 +470,6 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	}
 	runtime.imageContext.SignaturePolicyPath = runtime.config.Engine.SignaturePolicyPath
 
-	// Create the tmpDir
-	if err := os.MkdirAll(runtime.config.Engine.TmpDir, 0751); err != nil {
-		// The directory is allowed to exist
-		if !errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("error creating tmpdir: %w", err)
-		}
-	}
-
-	// Create events log dir
-	if err := os.MkdirAll(filepath.Dir(runtime.config.Engine.EventsLogFilePath), 0700); err != nil {
-		// The directory is allowed to exist
-		if !errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("error creating events dirs: %w", err)
-		}
-	}
-
 	// Get us at least one working OCI runtime.
 	runtime.ociRuntimes = make(map[string]OCIRuntime)
 
@@ -491,7 +480,7 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 			// Don't fatally error.
 			// This will allow us to ship configs including optional
 			// runtimes that might not be installed (crun, kata).
-			// Only a infof so default configs don't spec errors.
+			// Only an infof so default configs don't spec errors.
 			logrus.Debugf("Configured OCI runtime %s initialization failed: %v", name, err)
 			continue
 		}
@@ -531,14 +520,6 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 		return fmt.Errorf("no default OCI runtime was configured: %w", define.ErrInvalidArg)
 	}
 
-	// Make the per-boot files directory if it does not exist
-	if err := os.MkdirAll(runtime.config.Engine.TmpDir, 0755); err != nil {
-		// The directory is allowed to exist
-		if !errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("error creating runtime temporary files directory: %w", err)
-		}
-	}
-
 	// the store is only set up when we are in the userns so we do the same for the network interface
 	if !needsUserns {
 		netBackend, netInterface, err := network.NetworkBackend(runtime.store, runtime.config, runtime.syslog)
@@ -554,17 +535,18 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	// This check must be locked to prevent races
 	runtimeAliveLock := filepath.Join(runtime.config.Engine.TmpDir, "alive.lck")
 	runtimeAliveFile := filepath.Join(runtime.config.Engine.TmpDir, "alive")
-	aliveLock, err := storage.GetLockfile(runtimeAliveLock)
+	aliveLock, err := lockfile.GetLockFile(runtimeAliveLock)
 	if err != nil {
-		return fmt.Errorf("error acquiring runtime init lock: %w", err)
+		return fmt.Errorf("acquiring runtime init lock: %w", err)
 	}
 	// Acquire the lock and hold it until we return
 	// This ensures that no two processes will be in runtime.refresh at once
 	aliveLock.Lock()
 	doRefresh := false
+	unLockFunc := aliveLock.Unlock
 	defer func() {
-		if aliveLock.Locked() {
-			aliveLock.Unlock()
+		if unLockFunc != nil {
+			unLockFunc()
 		}
 	}()
 
@@ -583,7 +565,8 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 					logrus.Debug("Invalid systemd user session for current user")
 				}
 			}
-			aliveLock.Unlock() // Unlock to avoid deadlock as BecomeRootInUserNS will reexec.
+			unLockFunc()
+			unLockFunc = nil
 			pausePid, err := util.GetRootlessPauseProcessPidPathGivenDir(runtime.config.Engine.TmpDir)
 			if err != nil {
 				return fmt.Errorf("could not get pause process pid file path: %w", err)
@@ -610,7 +593,7 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 		if errors.Is(err, os.ErrNotExist) {
 			doRefresh = true
 		} else {
-			return fmt.Errorf("error reading runtime status file %s: %w", runtimeAliveFile, err)
+			return fmt.Errorf("reading runtime status file %s: %w", runtimeAliveFile, err)
 		}
 	}
 
@@ -670,102 +653,6 @@ func makeRuntime(runtime *Runtime) (retErr error) {
 	return nil
 }
 
-// findConmon iterates over conmonPaths and returns the path
-// to the first conmon binary with a new enough version. If none is found,
-// we try to do a path lookup of "conmon".
-func findConmon(conmonPaths []string) (string, error) {
-	foundOutdatedConmon := false
-	for _, path := range conmonPaths {
-		stat, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		if stat.IsDir() {
-			continue
-		}
-		if err := probeConmon(path); err != nil {
-			logrus.Warnf("Conmon at %s invalid: %v", path, err)
-			foundOutdatedConmon = true
-			continue
-		}
-		logrus.Debugf("Using conmon: %q", path)
-		return path, nil
-	}
-
-	// Search the $PATH as last fallback
-	if path, err := exec.LookPath("conmon"); err == nil {
-		if err := probeConmon(path); err != nil {
-			logrus.Warnf("Conmon at %s is invalid: %v", path, err)
-			foundOutdatedConmon = true
-		} else {
-			logrus.Debugf("Using conmon from $PATH: %q", path)
-			return path, nil
-		}
-	}
-
-	if foundOutdatedConmon {
-		return "", fmt.Errorf(
-			"please update to v%d.%d.%d or later: %w",
-			conmonMinMajorVersion, conmonMinMinorVersion, conmonMinPatchVersion, define.ErrConmonOutdated)
-	}
-
-	return "", fmt.Errorf(
-		"could not find a working conmon binary (configured options: %v): %w",
-		conmonPaths, define.ErrInvalidArg)
-}
-
-// probeConmon calls conmon --version and verifies it is a new enough version for
-// the runtime expectations the container engine currently has.
-func probeConmon(conmonBinary string) error {
-	cmd := exec.Command(conmonBinary, "--version")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return err
-	}
-	r := regexp.MustCompile(`^conmon version (?P<Major>\d+).(?P<Minor>\d+).(?P<Patch>\d+)`)
-
-	matches := r.FindStringSubmatch(out.String())
-	if len(matches) != 4 {
-		return fmt.Errorf("%v: %w", define.ErrConmonVersionFormat, err)
-	}
-	major, err := strconv.Atoi(matches[1])
-	if err != nil {
-		return fmt.Errorf("%v: %w", define.ErrConmonVersionFormat, err)
-	}
-	if major < conmonMinMajorVersion {
-		return define.ErrConmonOutdated
-	}
-	if major > conmonMinMajorVersion {
-		return nil
-	}
-
-	minor, err := strconv.Atoi(matches[2])
-	if err != nil {
-		return fmt.Errorf("%v: %w", define.ErrConmonVersionFormat, err)
-	}
-	if minor < conmonMinMinorVersion {
-		return define.ErrConmonOutdated
-	}
-	if minor > conmonMinMinorVersion {
-		return nil
-	}
-
-	patch, err := strconv.Atoi(matches[3])
-	if err != nil {
-		return fmt.Errorf("%v: %w", define.ErrConmonVersionFormat, err)
-	}
-	if patch < conmonMinPatchVersion {
-		return define.ErrConmonOutdated
-	}
-	if patch > conmonMinPatchVersion {
-		return nil
-	}
-
-	return nil
-}
-
 // TmpDir gets the current Libpod temporary files directory.
 func (r *Runtime) TmpDir() (string, error) {
 	if !r.valid {
@@ -798,7 +685,7 @@ func (r *Runtime) GetConfig() (*config.Config, error) {
 
 	// Copy so the caller won't be able to modify the actual config
 	if err := JSONDeepCopy(rtConfig, config); err != nil {
-		return nil, fmt.Errorf("error copying config: %w", err)
+		return nil, fmt.Errorf("copying config: %w", err)
 	}
 
 	return config, nil
@@ -833,9 +720,10 @@ func (r *Runtime) libimageEvents() {
 
 	eventChannel := r.libimageRuntime.EventChannel()
 	go func() {
+		sawShutdown := false
 		for {
 			// Make sure to read and write all events before
-			// checking if we're about to shutdown.
+			// shutting down.
 			for len(eventChannel) > 0 {
 				libimageEvent := <-eventChannel
 				e := events.Event{
@@ -850,12 +738,15 @@ func (r *Runtime) libimageEvents() {
 				}
 			}
 
+			if sawShutdown {
+				close(r.libimageEventsShutdown)
+				return
+			}
+
 			select {
 			case <-r.libimageEventsShutdown:
-				return
-
-			default:
-				time.Sleep(100 * time.Millisecond)
+				sawShutdown = true
+			case <-time.After(100 * time.Millisecond):
 			}
 		}
 	}()
@@ -886,7 +777,7 @@ func (r *Runtime) Shutdown(force bool) error {
 
 	// Shutdown all containers if --force is given
 	if force {
-		ctrs, err := r.state.AllContainers()
+		ctrs, err := r.state.AllContainers(false)
 		if err != nil {
 			logrus.Errorf("Retrieving containers from database: %v", err)
 		} else {
@@ -904,12 +795,15 @@ func (r *Runtime) Shutdown(force bool) error {
 	if r.store != nil {
 		// Wait for the events to be written.
 		if r.libimageEventsShutdown != nil {
+			// Tell loop to shutdown
 			r.libimageEventsShutdown <- true
+			// Wait for close to signal shutdown
+			<-r.libimageEventsShutdown
 		}
 
 		// Note that the libimage runtime shuts down the store.
 		if err := r.libimageRuntime.Shutdown(force); err != nil {
-			lastError = fmt.Errorf("error shutting down container storage: %w", err)
+			lastError = fmt.Errorf("shutting down container storage: %w", err)
 		}
 	}
 	if err := r.state.Close(); err != nil {
@@ -939,17 +833,17 @@ func (r *Runtime) refresh(alivePath string) error {
 	// Next refresh the state of all containers to recreate dirs and
 	// namespaces, and all the pods to recreate cgroups.
 	// Containers, pods, and volumes must also reacquire their locks.
-	ctrs, err := r.state.AllContainers()
+	ctrs, err := r.state.AllContainers(false)
 	if err != nil {
-		return fmt.Errorf("error retrieving all containers from state: %w", err)
+		return fmt.Errorf("retrieving all containers from state: %w", err)
 	}
 	pods, err := r.state.AllPods()
 	if err != nil {
-		return fmt.Errorf("error retrieving all pods from state: %w", err)
+		return fmt.Errorf("retrieving all pods from state: %w", err)
 	}
 	vols, err := r.state.AllVolumes()
 	if err != nil {
-		return fmt.Errorf("error retrieving all volumes from state: %w", err)
+		return fmt.Errorf("retrieving all volumes from state: %w", err)
 	}
 	// No locks are taken during pod, volume, and container refresh.
 	// Furthermore, the pod/volume/container refresh() functions are not
@@ -977,7 +871,7 @@ func (r *Runtime) refresh(alivePath string) error {
 	// Create a file indicating the runtime is alive and ready
 	file, err := os.OpenFile(alivePath, os.O_RDONLY|os.O_CREATE, 0644)
 	if err != nil {
-		return fmt.Errorf("error creating runtime status file: %w", err)
+		return fmt.Errorf("creating runtime status file: %w", err)
 	}
 	defer file.Close()
 
@@ -1067,6 +961,10 @@ func (r *Runtime) StorageConfig() storage.StoreOptions {
 	return r.storageConfig
 }
 
+func (r *Runtime) GarbageCollect() error {
+	return r.store.GarbageCollect()
+}
+
 // RunRoot retrieves the current c/storage temporary directory in use by Libpod.
 func (r *Runtime) RunRoot() string {
 	if r.store == nil {
@@ -1123,8 +1021,8 @@ func (r *Runtime) mergeDBConfig(dbConfig *DBConfig) {
 	if !r.storageSet.GraphDriverNameSet && dbConfig.GraphDriver != "" {
 		if r.storageConfig.GraphDriverName != dbConfig.GraphDriver &&
 			r.storageConfig.GraphDriverName != "" {
-			logrus.Errorf("User-selected graph driver %q overwritten by graph driver %q from database - delete libpod local files to resolve.  May prevent use of images created by other tools",
-				r.storageConfig.GraphDriverName, dbConfig.GraphDriver)
+			logrus.Errorf("User-selected graph driver %q overwritten by graph driver %q from database - delete libpod local files (%q) to resolve.  May prevent use of images created by other tools",
+				r.storageConfig.GraphDriverName, dbConfig.GraphDriver, r.storageConfig.GraphRoot)
 		}
 		r.storageConfig.GraphDriverName = dbConfig.GraphDriver
 	}
@@ -1141,9 +1039,6 @@ func (r *Runtime) mergeDBConfig(dbConfig *DBConfig) {
 			logrus.Debugf("Overriding tmp dir %q with %q from database", c.TmpDir, dbConfig.LibpodTmp)
 		}
 		c.TmpDir = dbConfig.LibpodTmp
-		if c.EventsLogFilePath == "" {
-			c.EventsLogFilePath = filepath.Join(dbConfig.LibpodTmp, "events", "events.log")
-		}
 	}
 
 	if !r.storageSet.VolumePathSet && dbConfig.VolumePath != "" {
@@ -1205,10 +1100,13 @@ func (r *Runtime) getVolumePlugin(volConfig *VolumeConfig) (*plugin.VolumePlugin
 
 	pluginPath, ok := r.config.Engine.VolumePlugins[name]
 	if !ok {
+		if name == define.VolumeDriverImage {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("no volume plugin with name %s available: %w", name, define.ErrMissingPlugin)
 	}
 
-	return plugin.GetVolumePlugin(name, pluginPath, timeout)
+	return plugin.GetVolumePlugin(name, pluginPath, timeout, r.config)
 }
 
 // GetSecretsStorageDir returns the directory that the secrets manager should take
