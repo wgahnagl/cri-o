@@ -20,14 +20,14 @@ func (r *Runtime) renumberLocks() error {
 		return err
 	}
 
-	allCtrs, err := r.state.AllContainers()
+	allCtrs, err := r.state.AllContainers(false)
 	if err != nil {
 		return err
 	}
 	for _, ctr := range allCtrs {
 		lock, err := r.lockManager.AllocateLock()
 		if err != nil {
-			return fmt.Errorf("error allocating lock for container %s: %w", ctr.ID(), err)
+			return fmt.Errorf("allocating lock for container %s: %w", ctr.ID(), err)
 		}
 
 		ctr.config.LockID = lock.ID()
@@ -44,7 +44,7 @@ func (r *Runtime) renumberLocks() error {
 	for _, pod := range allPods {
 		lock, err := r.lockManager.AllocateLock()
 		if err != nil {
-			return fmt.Errorf("error allocating lock for pod %s: %w", pod.ID(), err)
+			return fmt.Errorf("allocating lock for pod %s: %w", pod.ID(), err)
 		}
 
 		pod.config.LockID = lock.ID()
@@ -61,7 +61,7 @@ func (r *Runtime) renumberLocks() error {
 	for _, vol := range allVols {
 		lock, err := r.lockManager.AllocateLock()
 		if err != nil {
-			return fmt.Errorf("error allocating lock for volume %s: %w", vol.Name(), err)
+			return fmt.Errorf("allocating lock for volume %s: %w", vol.Name(), err)
 		}
 
 		vol.config.LockID = lock.ID()

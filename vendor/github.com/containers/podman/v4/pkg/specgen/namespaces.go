@@ -11,6 +11,8 @@ import (
 	"github.com/containers/common/pkg/cgroups"
 	cutil "github.com/containers/common/pkg/util"
 	"github.com/containers/podman/v4/libpod/define"
+	"github.com/containers/podman/v4/pkg/namespaces"
+	"github.com/containers/podman/v4/pkg/rootless"
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/containers/storage"
 	spec "github.com/opencontainers/runtime-spec/specs-go"
@@ -23,8 +25,7 @@ const (
 	// Default indicates the spec generator should determine
 	// a sane default
 	Default NamespaceMode = "default"
-	// Host means the the namespace is derived from
-	// the host
+	// Host means the namespace is derived from the host
 	Host NamespaceMode = "host"
 	// Path is the path to a namespace
 	Path NamespaceMode = "path"
@@ -40,10 +41,10 @@ const (
 	// None indicates the IPC namespace is created without mounting /dev/shm
 	None NamespaceMode = "none"
 	// NoNetwork indicates no network namespace should
-	// be joined.  loopback should still exists.
+	// be joined.  loopback should still exist.
 	// Only used with the network namespace, invalid otherwise.
 	NoNetwork NamespaceMode = "none"
-	// Bridge indicates that a CNI network stack
+	// Bridge indicates that the network backend (CNI/netavark)
 	// should be used.
 	// Only used with the network namespace, invalid otherwise.
 	Bridge NamespaceMode = "bridge"
@@ -51,6 +52,9 @@ const (
 	// be used.
 	// Only used with the network namespace, invalid otherwise.
 	Slirp NamespaceMode = "slirp4netns"
+	// Pasta indicates that a pasta network stack should be used.
+	// Only used with the network namespace, invalid otherwise.
+	Pasta NamespaceMode = "pasta"
 	// KeepId indicates a user namespace to keep the owner uid inside
 	// of the namespace itself.
 	// Only used with the user namespace, invalid otherwise.
@@ -155,6 +159,11 @@ func validateNetNS(n *Namespace) error {
 	switch n.NSMode {
 	case Slirp:
 		break
+	case Pasta:
+		if rootless.IsRootless() {
+			break
+		}
+		return fmt.Errorf("pasta networking is only supported for rootless mode")
 	case "", Default, Host, Path, FromContainer, FromPod, Private, NoNetwork, Bridge:
 		break
 	default:
@@ -196,7 +205,7 @@ func (n *Namespace) validate() error {
 	switch n.NSMode {
 	case "", Default, Host, Path, FromContainer, FromPod, Private:
 		// Valid, do nothing
-	case NoNetwork, Bridge, Slirp:
+	case NoNetwork, Bridge, Slirp, Pasta:
 		return errors.New("cannot use network modes with non-network namespace")
 	default:
 		return fmt.Errorf("invalid namespace type %s specified", n.NSMode)
@@ -274,7 +283,7 @@ func ParseCgroupNamespace(ns string) (Namespace, error) {
 	return toReturn, nil
 }
 
-// ParseIPCNamespace parses a ipc namespace specification in string
+// ParseIPCNamespace parses an ipc namespace specification in string
 // form.
 func ParseIPCNamespace(ns string) (Namespace, error) {
 	toReturn := Namespace{}
@@ -308,6 +317,14 @@ func ParseUserNamespace(ns string) (Namespace, error) {
 	case ns == "keep-id":
 		toReturn.NSMode = KeepID
 		return toReturn, nil
+	case strings.HasPrefix(ns, "keep-id:"):
+		split := strings.SplitN(ns, ":", 2)
+		if len(split) != 2 {
+			return toReturn, errors.New("invalid setting for keep-id: mode")
+		}
+		toReturn.NSMode = KeepID
+		toReturn.Value = split[1]
+		return toReturn, nil
 	case ns == "nomap":
 		toReturn.NSMode = NoMap
 		return toReturn, nil
@@ -320,7 +337,8 @@ func ParseUserNamespace(ns string) (Namespace, error) {
 
 // ParseNetworkFlag parses a network string slice into the network options
 // If the input is nil or empty it will use the default setting from containers.conf
-func ParseNetworkFlag(networks []string) (Namespace, map[string]types.PerNetworkOptions, map[string][]string, error) {
+// TODO (5.0): Drop pastaNetworkNameExists
+func ParseNetworkFlag(networks []string, pastaNetworkNameExists bool) (Namespace, map[string]types.PerNetworkOptions, map[string][]string, error) {
 	var networkOptions map[string][]string
 	// by default we try to use the containers.conf setting
 	// if we get at least one value use this instead
@@ -376,6 +394,22 @@ func ParseNetworkFlag(networks []string) (Namespace, map[string]types.PerNetwork
 		}
 		toReturn.NSMode = FromContainer
 		toReturn.Value = split[1]
+	case ns == string(Pasta), strings.HasPrefix(ns, string(Pasta)+":"):
+		var parts []string
+
+		if pastaNetworkNameExists {
+			goto nextCase
+		}
+
+		parts = strings.SplitN(ns, ":", 2)
+		if len(parts) > 1 {
+			networkOptions = make(map[string][]string)
+			networkOptions[parts[0]] = strings.Split(parts[1], ",")
+		}
+		toReturn.NSMode = Pasta
+		break
+	nextCase:
+		fallthrough
 	default:
 		// we should have a normal network
 		parts := strings.SplitN(ns, ":", 2)
@@ -410,6 +444,7 @@ func ParseNetworkFlag(networks []string) (Namespace, map[string]types.PerNetwork
 			if parts[0] == "" {
 				return toReturn, nil, nil, fmt.Errorf("network name cannot be empty: %w", define.ErrInvalidArg)
 			}
+			// TODO (5.0): Don't accept string(Pasta) here once we drop pastaNetworkNameExists
 			if cutil.StringInSlice(parts[0], []string{string(Bridge), string(Slirp), string(FromPod), string(NoNetwork),
 				string(Default), string(Private), string(Path), string(FromContainer), string(Host)}) {
 				return toReturn, nil, nil, fmt.Errorf("can only set extra network names, selected mode %s conflicts with bridge: %w", parts[0], define.ErrInvalidArg)
@@ -490,13 +525,18 @@ func SetupUserNS(idmappings *storage.IDMappingOptions, userns Namespace, g *gene
 			return user, err
 		}
 	case KeepID:
-		mappings, uid, gid, err := util.GetKeepIDMapping()
+		opts, err := namespaces.UsernsMode(userns.String()).GetKeepIDOptions()
+		if err != nil {
+			return user, err
+		}
+		mappings, uid, gid, err := util.GetKeepIDMapping(opts)
 		if err != nil {
 			return user, err
 		}
 		idmappings = mappings
 		g.SetProcessUID(uint32(uid))
 		g.SetProcessGID(uint32(gid))
+		g.AddProcessAdditionalGid(uint32(gid))
 		user = fmt.Sprintf("%d:%d", uid, gid)
 		if err := privateUserNamespace(idmappings, g); err != nil {
 			return user, err
@@ -509,6 +549,7 @@ func SetupUserNS(idmappings *storage.IDMappingOptions, userns Namespace, g *gene
 		idmappings = mappings
 		g.SetProcessUID(uint32(uid))
 		g.SetProcessGID(uint32(gid))
+		g.AddProcessAdditionalGid(uint32(gid))
 		user = fmt.Sprintf("%d:%d", uid, gid)
 		if err := privateUserNamespace(idmappings, g); err != nil {
 			return user, err
