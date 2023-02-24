@@ -13,7 +13,6 @@ import (
 	nettypes "github.com/containers/common/libnetwork/types"
 	"github.com/containers/common/pkg/config"
 	"github.com/containers/common/pkg/secrets"
-	cutil "github.com/containers/common/pkg/util"
 	"github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v4/libpod/define"
@@ -24,16 +23,13 @@ import (
 	"github.com/containers/podman/v4/pkg/util"
 	"github.com/containers/storage"
 	"github.com/containers/storage/pkg/idtools"
+	"github.com/containers/storage/pkg/regexp"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/runtime-tools/generate"
 	"github.com/sirupsen/logrus"
 )
 
-// Runtime Creation Options
-var (
-	// SdNotifyModeValues describes the only values that SdNotifyMode can be
-	SdNotifyModeValues = []string{define.SdNotifyModeContainer, define.SdNotifyModeConmon, define.SdNotifyModeIgnore}
-)
+var umaskRegex = regexp.Delayed(`^[0-7]{1,4}$`)
 
 // WithStorageConfig uses the given configuration to set up container storage.
 // If this is not specified, the system default configuration will be used
@@ -117,6 +113,18 @@ func WithStorageConfig(config storage.StoreOptions) RuntimeOption {
 	}
 }
 
+func WithTransientStore(transientStore bool) RuntimeOption {
+	return func(rt *Runtime) error {
+		if rt.valid {
+			return define.ErrRuntimeFinalized
+		}
+
+		rt.storageConfig.TransientStore = transientStore
+
+		return nil
+	}
+}
+
 // WithSignaturePolicy specifies the path of a file which decides how trust is
 // managed for images we've pulled.
 // If this is not specified, the system default configuration will be used
@@ -146,6 +154,17 @@ func WithOCIRuntime(runtime string) RuntimeOption {
 
 		rt.config.Engine.OCIRuntime = runtime
 
+		return nil
+	}
+}
+
+// WithCtrOCIRuntime specifies an OCI runtime in container's config.
+func WithCtrOCIRuntime(runtime string) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+		ctr.config.OCIRuntime = runtime
 		return nil
 	}
 }
@@ -281,7 +300,7 @@ func WithHooksDir(hooksDirs ...string) RuntimeOption {
 	}
 }
 
-// WithCDI sets the devices to check for for CDI configuration.
+// WithCDI sets the devices to check for CDI configuration.
 func WithCDI(devices []string) CtrCreateOption {
 	return func(ctr *Container) error {
 		if ctr.valid {
@@ -292,7 +311,7 @@ func WithCDI(devices []string) CtrCreateOption {
 	}
 }
 
-// WithStorageOpts sets the devices to check for for CDI configuration.
+// WithStorageOpts sets the devices to check for CDI configuration.
 func WithStorageOpts(storageOpts map[string]string) CtrCreateOption {
 	return func(ctr *Container) error {
 		if ctr.valid {
@@ -359,8 +378,8 @@ func WithNoPivotRoot() RuntimeOption {
 	}
 }
 
-// WithCNIConfigDir sets the CNI configuration directory.
-func WithCNIConfigDir(dir string) RuntimeOption {
+// WithNetworkConfigDir sets the network configuration directory.
+func WithNetworkConfigDir(dir string) RuntimeOption {
 	return func(rt *Runtime) error {
 		if rt.valid {
 			return define.ErrRuntimeFinalized
@@ -613,6 +632,17 @@ func WithSystemd() CtrCreateOption {
 	}
 }
 
+// WithSdNotifySocket sets the sd-notify of the container
+func WithSdNotifySocket(socketPath string) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+		ctr.config.SdNotifySocket = socketPath
+		return nil
+	}
+}
+
 // WithSdNotifyMode sets the sd-notify method
 func WithSdNotifyMode(mode string) CtrCreateOption {
 	return func(ctr *Container) error {
@@ -620,9 +650,8 @@ func WithSdNotifyMode(mode string) CtrCreateOption {
 			return define.ErrCtrFinalized
 		}
 
-		// verify values
-		if len(mode) > 0 && !cutil.StringInSlice(strings.ToLower(mode), SdNotifyModeValues) {
-			return fmt.Errorf("--sdnotify values must be one of %q: %w", strings.Join(SdNotifyModeValues, ", "), define.ErrInvalidArg)
+		if err := define.ValidateSdNotifyMode(mode); err != nil {
+			return err
 		}
 
 		ctr.config.SdNotifyMode = mode
@@ -751,6 +780,7 @@ func WithName(name string) CtrCreateOption {
 			return define.ErrCtrFinalized
 		}
 
+		name = strings.TrimPrefix(name, "/")
 		// Check the name against a regex
 		if !define.NameRegex.MatchString(name) {
 			return define.RegexError
@@ -1411,9 +1441,11 @@ func WithNamedVolumes(volumes []*ContainerNamedVolume) CtrCreateOption {
 			}
 
 			ctr.config.NamedVolumes = append(ctr.config.NamedVolumes, &ContainerNamedVolume{
-				Name:    vol.Name,
-				Dest:    vol.Dest,
-				Options: mountOpts,
+				Name:        vol.Name,
+				Dest:        vol.Dest,
+				Options:     mountOpts,
+				IsAnonymous: vol.IsAnonymous,
+				SubPath:     vol.SubPath,
 			})
 		}
 
@@ -1466,6 +1498,17 @@ func WithHealthCheck(healthCheck *manifest.Schema2HealthConfig) CtrCreateOption 
 			return define.ErrCtrFinalized
 		}
 		ctr.config.HealthCheckConfig = healthCheck
+		return nil
+	}
+}
+
+// WithHealthCheckOnFailureAction adds an on-failure action to health-check config
+func WithHealthCheckOnFailureAction(action define.HealthCheckOnFailureAction) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+		ctr.config.HealthCheckOnFailureAction = action
 		return nil
 	}
 }
@@ -1536,6 +1579,17 @@ func WithCreateWorkingDir() CtrCreateOption {
 }
 
 // Volume Creation Options
+
+func WithVolumeIgnoreIfExist() VolumeCreateOption {
+	return func(volume *Volume) error {
+		if volume.valid {
+			return define.ErrVolumeFinalized
+		}
+		volume.ignoreIfExists = true
+
+		return nil
+	}
+}
 
 // WithVolumeName sets the name of the volume.
 func WithVolumeName(name string) VolumeCreateOption {
@@ -1693,14 +1747,22 @@ func withSetAnon() VolumeCreateOption {
 	}
 }
 
-// WithVolumeDriverTimeout sets the volume creation timeout period
-func WithVolumeDriverTimeout(timeout int) VolumeCreateOption {
+// WithVolumeDriverTimeout sets the volume creation timeout period.
+// Only usable if a non-local volume driver is in use.
+func WithVolumeDriverTimeout(timeout uint) VolumeCreateOption {
 	return func(volume *Volume) error {
 		if volume.valid {
 			return define.ErrVolumeFinalized
 		}
 
-		volume.config.Timeout = timeout
+		if volume.config.Driver == "" || volume.config.Driver == define.VolumeDriverLocal {
+			return fmt.Errorf("Volume driver timeout can only be used with non-local volume drivers: %w", define.ErrInvalidArg)
+		}
+
+		tm := timeout
+
+		volume.config.Timeout = &tm
+
 		return nil
 	}
 }
@@ -1735,7 +1797,7 @@ func WithUmask(umask string) CtrCreateOption {
 		if ctr.valid {
 			return define.ErrCtrFinalized
 		}
-		if !define.UmaskRegex.MatchString(umask) {
+		if !umaskRegex.MatchString(umask) {
 			return fmt.Errorf("invalid umask string %s: %w", umask, define.ErrInvalidArg)
 		}
 		ctr.config.Umask = umask
@@ -1798,7 +1860,7 @@ func WithHostUsers(hostUsers []string) CtrCreateOption {
 	}
 }
 
-// WithInitCtrType indicates the container is a initcontainer
+// WithInitCtrType indicates the container is an initcontainer
 func WithInitCtrType(containerType string) CtrCreateOption {
 	return func(ctr *Container) error {
 		if ctr.valid {
@@ -1849,6 +1911,21 @@ func WithInfraConfig(compatibleOptions InfraInherit) CtrCreateOption {
 		err = json.Unmarshal(compatMarshal, ctr.config)
 		if err != nil {
 			return errors.New("could not unmarshal compatible options into contrainer config")
+		}
+		return nil
+	}
+}
+
+// WithStartupHealthcheck sets a startup healthcheck for the container.
+// Requires that a healthcheck must be set.
+func WithStartupHealthcheck(startupHC *define.StartupHealthCheck) CtrCreateOption {
+	return func(ctr *Container) error {
+		if ctr.valid {
+			return define.ErrCtrFinalized
+		}
+		ctr.config.StartupHealthCheckConfig = new(define.StartupHealthCheck)
+		if err := JSONDeepCopy(startupHC, ctr.config.StartupHealthCheckConfig); err != nil {
+			return fmt.Errorf("error copying startup healthcheck into container: %w", err)
 		}
 		return nil
 	}
@@ -2141,6 +2218,18 @@ func WithServiceContainer(id string) PodCreateOption {
 		}
 
 		pod.config.ServiceContainerID = id
+		return nil
+	}
+}
+
+// WithPodResources sets resource limits to be applied to the pod's cgroup
+// these will be inherited by all containers unless overridden.
+func WithPodResources(resources specs.LinuxResources) PodCreateOption {
+	return func(pod *Pod) error {
+		if pod.valid {
+			return define.ErrPodFinalized
+		}
+		pod.config.ResourceLimits = resources
 		return nil
 	}
 }

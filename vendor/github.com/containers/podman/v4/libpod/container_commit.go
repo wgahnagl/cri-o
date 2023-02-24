@@ -12,7 +12,6 @@ import (
 	"github.com/containers/image/v5/types"
 	"github.com/containers/podman/v4/libpod/define"
 	"github.com/containers/podman/v4/libpod/events"
-	libpodutil "github.com/containers/podman/v4/pkg/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,7 +47,7 @@ func (c *Container) Commit(ctx context.Context, destImage string, options Contai
 
 	if c.state.State == define.ContainerStateRunning && options.Pause {
 		if err := c.pause(); err != nil {
-			return nil, fmt.Errorf("error pausing container %q to commit: %w", c.ID(), err)
+			return nil, fmt.Errorf("pausing container %q to commit: %w", c.ID(), err)
 		}
 		defer func() {
 			if err := c.unpause(); err != nil {
@@ -148,7 +147,7 @@ func (c *Container) Commit(ctx context.Context, destImage string, options Contai
 	importBuilder.SetWorkDir(c.config.Spec.Process.Cwd)
 
 	// Process user changes
-	newImageConfig, err := libpodutil.GetImageConfig(options.Changes)
+	newImageConfig, err := libimage.ImageConfigFromChanges(options.Changes)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +201,7 @@ func (c *Container) Commit(ctx context.Context, destImage string, options Contai
 
 		imageRef, err := is.Transport.ParseStoreReference(c.runtime.store, resolvedImageName)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing target image name %q: %w", destImage, err)
+			return nil, fmt.Errorf("parsing target image name %q: %w", destImage, err)
 		}
 		commitRef = imageRef
 	}

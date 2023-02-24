@@ -171,11 +171,12 @@ func queryPackageVersion(cmdArg ...string) string {
 func packageVersion(program string) string { // program is full path
 	packagers := [][]string{
 		{"/usr/bin/rpm", "-q", "-f"},
-		{"/usr/bin/dpkg", "-S"},     // Debian, Ubuntu
-		{"/usr/bin/pacman", "-Qo"},  // Arch
-		{"/usr/bin/qfile", "-qv"},   // Gentoo (quick)
-		{"/usr/bin/equery", "b"},    // Gentoo (slow)
-		{"/sbin/apk", "info", "-W"}, // Alpine
+		{"/usr/bin/dpkg", "-S"},                // Debian, Ubuntu
+		{"/usr/bin/pacman", "-Qo"},             // Arch
+		{"/usr/bin/qfile", "-qv"},              // Gentoo (quick)
+		{"/usr/bin/equery", "b"},               // Gentoo (slow)
+		{"/sbin/apk", "info", "-W"},            // Alpine
+		{"/usr/local/sbin/pkg", "which", "-q"}, // FreeBSD
 	}
 
 	for _, cmd := range packagers {
@@ -231,7 +232,7 @@ func DefaultSeccompPath() (string, error) {
 func checkDependencyContainer(depCtr, ctr *Container) error {
 	state, err := depCtr.State()
 	if err != nil {
-		return fmt.Errorf("error accessing dependency container %s state: %w", depCtr.ID(), err)
+		return fmt.Errorf("accessing dependency container %s state: %w", depCtr.ID(), err)
 	}
 	if state == define.ContainerStateRemoving {
 		return fmt.Errorf("cannot use container %s as a dependency as it is being removed: %w", depCtr.ID(), define.ErrCtrStateInvalid)
@@ -311,7 +312,12 @@ func writeHijackHeader(r *http.Request, conn io.Writer) {
 }
 
 // Convert OCICNI port bindings into Inspect-formatted port bindings.
-func makeInspectPortBindings(bindings []types.PortMapping, expose map[uint16][]string) map[string][]define.InspectHostPort {
+func makeInspectPortBindings(bindings []types.PortMapping) map[string][]define.InspectHostPort {
+	return makeInspectPorts(bindings, nil)
+}
+
+// Convert OCICNI port bindings into Inspect-formatted port bindings with exposed, but not bound ports set to nil.
+func makeInspectPorts(bindings []types.PortMapping, expose map[uint16][]string) map[string][]define.InspectHostPort {
 	portBindings := make(map[string][]define.InspectHostPort)
 	for _, port := range bindings {
 		protocols := strings.Split(port.Protocol, ",")

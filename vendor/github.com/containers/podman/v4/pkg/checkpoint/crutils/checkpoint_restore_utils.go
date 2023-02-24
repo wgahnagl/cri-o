@@ -5,18 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	metadata "github.com/checkpoint-restore/checkpointctl/lib"
-	"github.com/checkpoint-restore/go-criu/v5/stats"
+	"github.com/checkpoint-restore/go-criu/v6/stats"
 	"github.com/containers/storage/pkg/archive"
 	"github.com/opencontainers/selinux/go-selinux/label"
 )
 
-// This file mainly exist to make the checkpoint/restore functions
+// This file mainly exists to make the checkpoint/restore functions
 // available for other users. One possible candidate would be CRI-O.
 
 // CRImportCheckpointWithoutConfig imports the checkpoint archive (input)
@@ -159,11 +158,11 @@ func CRCreateRootFsDiffTar(changes *[]archive.Change, mountPoint, destination st
 			IncludeFiles:     rootfsIncludeFiles,
 		})
 		if err != nil {
-			return includeFiles, fmt.Errorf("error exporting root file-system diff to %q: %w", rootfsDiffPath, err)
+			return includeFiles, fmt.Errorf("exporting root file-system diff to %q: %w", rootfsDiffPath, err)
 		}
 		rootfsDiffFile, err := os.Create(rootfsDiffPath)
 		if err != nil {
-			return includeFiles, fmt.Errorf("error creating root file-system diff file %q: %w", rootfsDiffPath, err)
+			return includeFiles, fmt.Errorf("creating root file-system diff file %q: %w", rootfsDiffPath, err)
 		}
 		defer rootfsDiffFile.Close()
 		if _, err = io.Copy(rootfsDiffFile, rootfsTar); err != nil {
@@ -208,7 +207,7 @@ func CRCreateFileWithLabel(directory, fileName, fileLabel string) error {
 
 // CRRuntimeSupportsCheckpointRestore tests if the given runtime at 'runtimePath'
 // supports checkpointing. The checkpoint restore interface has no definition
-// but crun implements all commands just as runc does. Whathh runc does it the
+// but crun implements all commands just as runc does. What runc does is the
 // official definition of the checkpoint/restore interface.
 func CRRuntimeSupportsCheckpointRestore(runtimePath string) bool {
 	// Check if the runtime implements checkpointing. Currently only
@@ -237,7 +236,7 @@ func CRRuntimeSupportsPodCheckpointRestore(runtimePath string) bool {
 // given checkpoint archive and returns the runtime used to create
 // the given checkpoint archive.
 func CRGetRuntimeFromArchive(input string) (*string, error) {
-	dir, err := ioutil.TempDir("", "checkpoint")
+	dir, err := os.MkdirTemp("", "checkpoint")
 	if err != nil {
 		return nil, err
 	}
