@@ -1222,7 +1222,7 @@ github.com/google/gnostic/extensions
 github.com/google/gnostic/jsonschema
 github.com/google/gnostic/openapiv2
 github.com/google/gnostic/openapiv3
-# github.com/google/go-cmp v0.5.8
+# github.com/google/go-cmp v0.5.9
 ## explicit; go 1.13
 github.com/google/go-cmp/cmp
 github.com/google/go-cmp/cmp/cmpopts
@@ -1379,8 +1379,8 @@ github.com/in-toto/in-toto-golang/in_toto/slsa_provenance/v0.2
 # github.com/inconshreveable/mousetrap v1.0.0
 ## explicit
 github.com/inconshreveable/mousetrap
-# github.com/intel/goresctrl v0.2.0
-## explicit; go 1.16
+# github.com/intel/goresctrl v0.3.0
+## explicit; go 1.18
 github.com/intel/goresctrl/pkg/blockio
 github.com/intel/goresctrl/pkg/cgroups
 github.com/intel/goresctrl/pkg/kubernetes
@@ -2384,7 +2384,7 @@ golang.org/x/oauth2/jwt
 ## explicit
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
+# golang.org/x/sys v0.0.0-20220908164124-27713097b956
 ## explicit; go 1.17
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
@@ -2753,7 +2753,7 @@ k8s.io/api/scheduling/v1beta1
 k8s.io/api/storage/v1
 k8s.io/api/storage/v1alpha1
 k8s.io/api/storage/v1beta1
-# k8s.io/apimachinery v0.24.3 => k8s.io/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20220823173643-a866cbe2e5bb
+# k8s.io/apimachinery v0.25.0 => k8s.io/kubernetes/staging/src/k8s.io/apimachinery v0.0.0-20220823173643-a866cbe2e5bb
 ## explicit; go 1.19
 k8s.io/apimachinery/pkg/api/errors
 k8s.io/apimachinery/pkg/api/meta

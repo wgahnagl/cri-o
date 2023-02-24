@@ -41,7 +41,7 @@ require (
 	github.com/google/renameio v1.0.1
 	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
-	github.com/intel/goresctrl v0.2.0
+	github.com/intel/goresctrl v0.3.0
 	github.com/json-iterator/go v1.1.12
 	github.com/onsi/ginkgo/v2 v2.1.4
 	github.com/onsi/gomega v1.20.0
@@ -65,10 +65,10 @@ require (
 	go.opentelemetry.io/otel/sdk v1.9.0
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
-	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
+	golang.org/x/sys v0.0.0-20220908164124-27713097b956
 	google.golang.org/grpc v1.49.0
 	k8s.io/api v0.24.2
-	k8s.io/apimachinery v0.24.3
+	k8s.io/apimachinery v0.25.0
 	k8s.io/client-go v1.5.2
 	k8s.io/cri-api v0.24.1
 	k8s.io/klog/v2 v2.70.1
@@ -211,7 +211,7 @@ require (
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/certificate-transparency-go v1.1.2 // indirect
 	github.com/google/gnostic v0.5.7-v3refs // indirect
-	github.com/google/go-cmp v0.5.8 // indirect
+	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/go-containerregistry v0.10.0 // indirect
 	github.com/google/go-github/v42 v42.0.0 // indirect
 	github.com/google/go-github/v45 v45.2.0 // indirect
