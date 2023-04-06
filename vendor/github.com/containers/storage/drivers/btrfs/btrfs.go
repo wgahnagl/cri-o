@@ -6,6 +6,9 @@ package btrfs
 /*
 #include <stdlib.h>
 #include <dirent.h>
+
+// keep struct field name compatible with btrfs-progs < 6.1.
+#define max_referenced max_rfer
 #include <btrfs/ioctl.h>
 #include <btrfs/ctree.h>
 
@@ -18,7 +21,6 @@ import "C"
 import (
 	"fmt"
 	"io/fs"
-	"io/ioutil"
 	"math"
 	"os"
 	"path"
@@ -43,7 +45,7 @@ import (
 const defaultPerms = os.FileMode(0555)
 
 func init() {
-	graphdriver.Register("btrfs", Init)
+	graphdriver.MustRegister("btrfs", Init)
 }
 
 type btrfsOptions struct {
@@ -155,7 +157,7 @@ func (d *Driver) Status() [][2]string {
 
 // Metadata returns empty metadata for this driver.
 func (d *Driver) Metadata(id string) (map[string]string, error) {
-	return nil, nil
+	return nil, nil //nolint: nilnil
 }
 
 // Cleanup unmounts the home directory.
@@ -383,7 +385,7 @@ func subvolLimitQgroup(path string, size uint64) error {
 	defer closeDir(dir)
 
 	var args C.struct_btrfs_ioctl_qgroup_limit_args
-	args.lim.max_referenced = C.__u64(size)
+	args.lim.max_rfer = C.__u64(size)
 	args.lim.flags = C.BTRFS_QGROUP_LIMIT_MAX_RFER
 	_, _, errno := unix.Syscall(unix.SYS_IOCTL, getDirFd(dir), C.BTRFS_IOC_QGROUP_LIMIT,
 		uintptr(unsafe.Pointer(&args)))
@@ -524,7 +526,7 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) error {
 		if err := idtools.MkdirAllAs(quotas, 0700, rootUID, rootGID); err != nil {
 			return err
 		}
-		if err := ioutil.WriteFile(path.Join(quotas, id), []byte(fmt.Sprint(driver.options.size)), 0644); err != nil {
+		if err := os.WriteFile(path.Join(quotas, id), []byte(fmt.Sprint(driver.options.size)), 0644); err != nil {
 			return err
 		}
 	}
@@ -643,7 +645,7 @@ func (d *Driver) Get(id string, options graphdriver.MountOpts) (string, error) {
 		return "", fmt.Errorf("%s: not a directory", dir)
 	}
 
-	if quota, err := ioutil.ReadFile(d.quotasDirID(id)); err == nil {
+	if quota, err := os.ReadFile(d.quotasDirID(id)); err == nil {
 		if size, err := strconv.ParseUint(string(quota), 10, 64); err == nil && size >= d.options.minSpace {
 			if err := d.enableQuota(); err != nil {
 				return "", err
@@ -675,6 +677,11 @@ func (d *Driver) Exists(id string) bool {
 	dir := d.subvolumesDirID(id)
 	_, err := os.Stat(dir)
 	return err == nil
+}
+
+// List layers (not including additional image stores)
+func (d *Driver) ListLayers() ([]string, error) {
+	return nil, graphdriver.ErrNotSupported
 }
 
 // AdditionalImageStores returns additional image stores supported by the driver

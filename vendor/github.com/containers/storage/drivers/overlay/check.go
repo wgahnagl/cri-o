@@ -6,13 +6,13 @@ package overlay
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
 	"syscall"
 
 	"github.com/containers/storage/pkg/archive"
+	"github.com/containers/storage/pkg/idmap"
 	"github.com/containers/storage/pkg/idtools"
 	"github.com/containers/storage/pkg/ioutils"
 	"github.com/containers/storage/pkg/mount"
@@ -27,7 +27,7 @@ import (
 // directory or the kernel enable CONFIG_OVERLAY_FS_REDIRECT_DIR.
 // When these exist naive diff should be used.
 func doesSupportNativeDiff(d, mountOpts string) error {
-	td, err := ioutil.TempDir(d, "opaque-bug-check")
+	td, err := os.MkdirTemp(d, "opaque-bug-check")
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func doesSupportNativeDiff(d, mountOpts string) error {
 	}()
 
 	// Touch file in d to force copy up of opaque directory "d" from "l2" to "l3"
-	if err := ioutil.WriteFile(filepath.Join(td, "merged", "d", "f"), []byte{}, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(td, "merged", "d", "f"), []byte{}, 0644); err != nil {
 		return fmt.Errorf("failed to write to merged directory: %w", err)
 	}
 
@@ -121,7 +121,7 @@ func doesSupportNativeDiff(d, mountOpts string) error {
 // copying up a file from a lower layer unless/until its contents are being
 // modified
 func doesMetacopy(d, mountOpts string) (bool, error) {
-	td, err := ioutil.TempDir(d, "metacopy-check")
+	td, err := os.MkdirTemp(d, "metacopy-check")
 	if err != nil {
 		return false, err
 	}
@@ -158,7 +158,7 @@ func doesMetacopy(d, mountOpts string) (bool, error) {
 	}
 	if err := unix.Mount("overlay", filepath.Join(td, "merged"), "overlay", uintptr(flags), opts); err != nil {
 		if errors.Is(err, unix.EINVAL) {
-			logrus.Info("metacopy option not supported on this kernel", mountOpts)
+			logrus.Infof("overlay: metacopy option not supported on this kernel, checked using options %q", mountOpts)
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to mount overlay for metacopy check with %q options: %w", mountOpts, err)
@@ -186,7 +186,7 @@ func doesMetacopy(d, mountOpts string) (bool, error) {
 
 // doesVolatile checks if the filesystem supports the "volatile" mount option
 func doesVolatile(d string) (bool, error) {
-	td, err := ioutil.TempDir(d, "volatile-check")
+	td, err := os.MkdirTemp(d, "volatile-check")
 	if err != nil {
 		return false, err
 	}
@@ -224,7 +224,7 @@ func doesVolatile(d string) (bool, error) {
 // supportsIdmappedLowerLayers checks if the kernel supports mounting overlay on top of
 // a idmapped lower layer.
 func supportsIdmappedLowerLayers(home string) (bool, error) {
-	layerDir, err := ioutil.TempDir(home, "compat")
+	layerDir, err := os.MkdirTemp(home, "compat")
 	if err != nil {
 		return false, err
 	}
@@ -244,20 +244,20 @@ func supportsIdmappedLowerLayers(home string) (bool, error) {
 	_ = idtools.MkdirAs(upperDir, 0700, 0, 0)
 	_ = idtools.MkdirAs(workDir, 0700, 0, 0)
 
-	idmap := []idtools.IDMap{
+	mapping := []idtools.IDMap{
 		{
 			ContainerID: 0,
 			HostID:      0,
 			Size:        1,
 		},
 	}
-	pid, cleanupFunc, err := createUsernsProcess(idmap, idmap)
+	pid, cleanupFunc, err := idmap.CreateUsernsProcess(mapping, mapping)
 	if err != nil {
 		return false, err
 	}
 	defer cleanupFunc()
 
-	if err := createIDMappedMount(lowerDir, lowerMappedDir, int(pid)); err != nil {
+	if err := idmap.CreateIDMappedMount(lowerDir, lowerMappedDir, int(pid)); err != nil {
 		return false, fmt.Errorf("create mapped mount: %w", err)
 	}
 	defer unix.Unmount(lowerMappedDir, unix.MNT_DETACH)

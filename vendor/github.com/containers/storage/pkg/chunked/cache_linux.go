@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"sort"
 	"strconv"
@@ -128,7 +127,7 @@ func (c *layersCache) load() error {
 		}
 		defer manifestReader.Close()
 
-		manifest, err := ioutil.ReadAll(manifestReader)
+		manifest, err := io.ReadAll(manifestReader)
 		if err != nil {
 			return fmt.Errorf("open manifest file for layer %q: %w", r.ID, err)
 		}
@@ -334,7 +333,7 @@ func writeCache(manifest []byte, id string, dest setBigData) (*metadata, error) 
 	}()
 	defer pipeReader.Close()
 
-	counter := ioutils.NewWriteCounter(ioutil.Discard)
+	counter := ioutils.NewWriteCounter(io.Discard)
 
 	r := io.TeeReader(pipeReader, counter)
 
@@ -362,7 +361,7 @@ func readMetadataFromCache(bigData io.Reader) (*metadata, error) {
 		return nil, err
 	}
 	if version != cacheVersion {
-		return nil, nil
+		return nil, nil //nolint: nilnil
 	}
 	if err := binary.Read(bigData, binary.LittleEndian, &tagLen); err != nil {
 		return nil, err
@@ -399,7 +398,8 @@ func prepareMetadata(manifest []byte) ([]*internal.FileMetadata, error) {
 	toc, err := unmarshalToc(manifest)
 	if err != nil {
 		// ignore errors here.  They might be caused by a different manifest format.
-		return nil, nil
+		logrus.Debugf("could not unmarshal manifest: %v", err)
+		return nil, nil //nolint: nilnil
 	}
 
 	var r []*internal.FileMetadata
