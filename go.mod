@@ -3,8 +3,8 @@ go 1.19
 module github.com/cri-o/cri-o
 
 require (
-	github.com/BurntSushi/toml v1.2.0
-	github.com/Microsoft/go-winio v0.5.2
+	github.com/BurntSushi/toml v1.2.1
+	github.com/Microsoft/go-winio v0.6.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/container-orchestrated-devices/container-device-interface v0.5.0
 	github.com/containerd/cgroups v1.0.4
@@ -23,14 +23,14 @@ require (
 	github.com/containers/kubensmnt v1.2.0
 	github.com/containers/ocicrypt v1.1.5
 	github.com/containers/podman/v4 v4.2.0
-	github.com/containers/storage v1.42.0
+	github.com/containers/storage v1.46.1
 	github.com/coreos/go-systemd/v22 v22.3.2
 	github.com/cpuguy83/go-md2man v1.0.10
 	github.com/creack/pty v1.1.18
 	github.com/cri-o/ocicni v0.4.0
 	github.com/cyphar/filepath-securejoin v0.2.3
 	github.com/docker/distribution v2.8.1+incompatible
-	github.com/docker/go-units v0.4.0
+	github.com/docker/go-units v0.5.0
 	github.com/emicklei/go-restful v2.16.0+incompatible
 	github.com/fsnotify/fsnotify v1.5.4
 	github.com/go-logr/logr v1.2.3
@@ -47,15 +47,15 @@ require (
 	github.com/onsi/gomega v1.20.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.0.3-0.20220114050600-8b9d41f48198
-	github.com/opencontainers/runc v1.1.3
-	github.com/opencontainers/runtime-spec v1.0.3-0.20211214071223-8958f93039ab
+	github.com/opencontainers/runc v1.1.5
+	github.com/opencontainers/runtime-spec v1.1.0-rc.1
 	github.com/opencontainers/runtime-tools v0.9.1-0.20220714195903-17b3287fafb7
-	github.com/opencontainers/selinux v1.10.1
+	github.com/opencontainers/selinux v1.11.0
 	github.com/prometheus/client_golang v1.13.0
 	github.com/psampaz/go-mod-outdated v0.8.0
 	github.com/sirupsen/logrus v1.9.0
 	github.com/soheilhy/cmux v0.1.5
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.8.2
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
 	github.com/urfave/cli/v2 v2.11.2
 	github.com/vishvananda/netlink v1.2.1-beta.2
@@ -64,8 +64,8 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.9.0
 	go.opentelemetry.io/otel/sdk v1.9.0
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b
-	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
-	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
+	golang.org/x/sync v0.1.0
+	golang.org/x/sys v0.7.0
 	google.golang.org/grpc v1.49.0
 	k8s.io/api v0.24.2
 	k8s.io/apimachinery v0.24.3
@@ -102,7 +102,7 @@ require (
 	github.com/Azure/go-autorest/logger v0.2.1 // indirect
 	github.com/Azure/go-autorest/tracing v0.6.0 // indirect
 	github.com/Masterminds/semver/v3 v3.1.1 // indirect
-	github.com/Microsoft/hcsshim v0.9.4 // indirect
+	github.com/Microsoft/hcsshim v0.9.8 // indirect
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
 	github.com/PaesslerAG/gval v1.0.0 // indirect
 	github.com/PaesslerAG/jsonpath v0.1.1 // indirect
@@ -147,7 +147,7 @@ require (
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be // indirect
 	github.com/containerd/console v1.0.3 // indirect
 	github.com/containerd/go-runc v1.0.0 // indirect
-	github.com/containerd/stargz-snapshotter/estargz v0.12.0 // indirect
+	github.com/containerd/stargz-snapshotter/estargz v0.14.3 // indirect
 	github.com/containers/libtrust v0.0.0-20200511145503-9c3a6c22cd9a // indirect
 	github.com/containers/psgo v1.7.2 // indirect
 	github.com/coreos/go-oidc/v3 v3.2.0 // indirect
@@ -248,7 +248,7 @@ require (
 	github.com/jonboulle/clockwork v0.3.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/kevinburke/ssh_config v1.1.0 // indirect
-	github.com/klauspost/compress v1.15.9 // indirect
+	github.com/klauspost/compress v1.16.4 // indirect
 	github.com/klauspost/pgzip v1.2.5 // indirect
 	github.com/leodido/go-urn v1.2.1 // indirect
 	github.com/letsencrypt/boulder v0.0.0-20220331220046-b23ab962616e // indirect
@@ -262,7 +262,7 @@ require (
 	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/miekg/pkcs11 v1.1.1 // indirect
-	github.com/mistifyio/go-zfs v2.1.2-0.20190413222219-f784269be439+incompatible // indirect
+	github.com/mistifyio/go-zfs/v3 v3.0.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mmarkdown/mmark v2.0.40+incompatible // indirect
@@ -328,16 +328,16 @@ require (
 	github.com/subosito/gotenv v1.3.0 // indirect
 	github.com/sylabs/sif/v2 v2.7.1 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
-	github.com/tchap/go-patricia v2.3.0+incompatible // indirect
+	github.com/tchap/go-patricia/v2 v2.3.1 // indirect
 	github.com/tent/canonical-json-go v0.0.0-20130607151641-96e4ba3a7613 // indirect
 	github.com/thales-e-security/pool v0.0.2 // indirect
 	github.com/theupdateframework/go-tuf v0.3.1 // indirect
 	github.com/titanous/rocacheck v0.0.0-20171023193734-afe73141d399 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/transparency-dev/merkle v0.0.1 // indirect
-	github.com/ulikunitz/xz v0.5.10 // indirect
-	github.com/urfave/cli v1.22.9 // indirect
-	github.com/vbatts/tar-split v0.11.2 // indirect
+	github.com/ulikunitz/xz v0.5.11 // indirect
+	github.com/urfave/cli v1.22.12 // indirect
+	github.com/vbatts/tar-split v0.11.3 // indirect
 	github.com/vbauerster/mpb/v7 v7.4.2 // indirect
 	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f // indirect
 	github.com/xanzy/go-gitlab v0.68.2 // indirect
