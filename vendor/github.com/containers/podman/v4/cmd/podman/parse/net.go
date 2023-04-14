@@ -8,8 +8,9 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
+
+	"github.com/containers/storage/pkg/regexp"
 )
 
 const (
@@ -22,8 +23,8 @@ const (
 
 var (
 	whiteSpaces  = " \t"
-	alphaRegexp  = regexp.MustCompile(`[a-zA-Z]`)
-	domainRegexp = regexp.MustCompile(`^(:?(:?[a-zA-Z0-9]|(:?[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9]))(:?\.(:?[a-zA-Z0-9]|(:?[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])))*)\.?\s*$`)
+	alphaRegexp  = regexp.Delayed(`[a-zA-Z]`)
+	domainRegexp = regexp.Delayed(`^(:?(:?[a-zA-Z0-9]|(:?[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9]))(:?\.(:?[a-zA-Z0-9]|(:?[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])))*)\.?\s*$`)
 )
 
 // validateExtraHost validates that the specified string is a valid extrahost and returns it.
@@ -149,15 +150,6 @@ func parseEnvOrLabelFile(envOrLabel map[string]string, filename, configType stri
 		}
 	}
 	return scanner.Err()
-}
-
-// ValidateFileName returns an error if filename contains ":"
-// as it is currently not supported
-func ValidateFileName(filename string) error {
-	if strings.Contains(filename, ":") {
-		return fmt.Errorf("invalid filename (should not contain ':') %q", filename)
-	}
-	return nil
 }
 
 // ValidURL checks a string urlStr is a url or not

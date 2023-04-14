@@ -2,13 +2,12 @@ package file
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
 	"syscall"
 
-	"github.com/containers/storage"
+	"github.com/containers/storage/pkg/lockfile"
 	"github.com/sirupsen/logrus"
 )
 
@@ -103,7 +102,7 @@ func (locks *FileLocks) AllocateGivenLock(lck uint32) error {
 
 	f, err := os.OpenFile(locks.getLockPath(lck), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
 	if err != nil {
-		return fmt.Errorf("error creating lock %d: %w", lck, err)
+		return fmt.Errorf("creating lock %d: %w", lck, err)
 	}
 	f.Close()
 
@@ -129,9 +128,9 @@ func (locks *FileLocks) DeallocateAllLocks() error {
 	if !locks.valid {
 		return fmt.Errorf("locks have already been closed: %w", syscall.EINVAL)
 	}
-	files, err := ioutil.ReadDir(locks.lockPath)
+	files, err := os.ReadDir(locks.lockPath)
 	if err != nil {
-		return fmt.Errorf("error reading directory %s: %w", locks.lockPath, err)
+		return fmt.Errorf("reading directory %s: %w", locks.lockPath, err)
 	}
 	var lastErr error
 	for _, f := range files {
@@ -151,9 +150,9 @@ func (locks *FileLocks) LockFileLock(lck uint32) error {
 		return fmt.Errorf("locks have already been closed: %w", syscall.EINVAL)
 	}
 
-	l, err := storage.GetLockfile(locks.getLockPath(lck))
+	l, err := lockfile.GetLockFile(locks.getLockPath(lck))
 	if err != nil {
-		return fmt.Errorf("error acquiring lock: %w", err)
+		return fmt.Errorf("acquiring lock: %w", err)
 	}
 
 	l.Lock()
@@ -165,9 +164,9 @@ func (locks *FileLocks) UnlockFileLock(lck uint32) error {
 	if !locks.valid {
 		return fmt.Errorf("locks have already been closed: %w", syscall.EINVAL)
 	}
-	l, err := storage.GetLockfile(locks.getLockPath(lck))
+	l, err := lockfile.GetLockFile(locks.getLockPath(lck))
 	if err != nil {
-		return fmt.Errorf("error acquiring lock: %w", err)
+		return fmt.Errorf("acquiring lock: %w", err)
 	}
 
 	l.Unlock()
