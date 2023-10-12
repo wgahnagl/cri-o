@@ -41,6 +41,7 @@ type Agent struct {
 }
 
 // AgentImplementation is the actual implementation of the http calls
+//
 //counterfeiter:generate . AgentImplementation
 type AgentImplementation interface {
 	SendPostRequest(*http.Client, string, []byte, string) (*http.Response, error)
@@ -112,7 +113,7 @@ func (a *Agent) Client() *http.Client {
 	}
 }
 
-// Get resturns the body a a GET request
+// Get returns the body a a GET request
 func (a *Agent) Get(url string) (content []byte, err error) {
 	request, err := a.GetRequest(url)
 	if err != nil {
@@ -125,8 +126,7 @@ func (a *Agent) Get(url string) (content []byte, err error) {
 
 // GetRequest sends a GET request to a URL and returns the request and response
 func (a *Agent) GetRequest(url string) (response *http.Response, err error) {
-	logrus.Infof("Sending GET request to %s", url)
-	logrus.Debug()
+	logrus.Debugf("Sending GET request to %s", url)
 	try := 0
 	for {
 		response, err = a.AgentImplementation.SendGetRequest(a.Client(), url)
@@ -161,9 +161,7 @@ func (a *Agent) Post(url string, postData []byte) (content []byte, err error) {
 
 // PostRequest sends the postData in a POST request to a URL and returns the request object
 func (a *Agent) PostRequest(url string, postData []byte) (response *http.Response, err error) {
-	logrus.Infof("Sending POST request to %s", url)
-	logrus.Debug(a.options.String())
-
+	logrus.Debugf("Sending POST request to %s", url)
 	try := 0
 	for {
 		response, err = a.AgentImplementation.SendPostRequest(a.Client(), url, postData, a.options.PostContentType)
