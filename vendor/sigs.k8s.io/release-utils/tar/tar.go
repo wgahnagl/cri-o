@@ -30,8 +30,21 @@ import (
 )
 
 // Compress the provided  `tarContentsPath` into the `tarFilePath` while
-// excluding the `exclude` regular expression patterns.
+// excluding the `exclude` regular expression patterns. This function will
+// preserve path between `tarFilePath` and `tarContentsPath` directories inside
+// the archive (see `CompressWithoutPreservingPath` as an alternative).
 func Compress(tarFilePath, tarContentsPath string, excludes ...*regexp.Regexp) error {
+	return compress(true, tarFilePath, tarContentsPath, excludes...)
+}
+
+// Compress the provided  `tarContentsPath` into the `tarFilePath` while
+// excluding the `exclude` regular expression patterns. This function will
+// not preserve path leading to the `tarContentsPath` directory in the archive.
+func CompressWithoutPreservingPath(tarFilePath, tarContentsPath string, excludes ...*regexp.Regexp) error {
+	return compress(false, tarFilePath, tarContentsPath, excludes...)
+}
+
+func compress(preserveRootDirStructure bool, tarFilePath, tarContentsPath string, excludes ...*regexp.Regexp) error {
 	tarFile, err := os.Create(tarFilePath)
 	if err != nil {
 		return fmt.Errorf("create tar file %q: %w", tarFilePath, err)
@@ -77,8 +90,20 @@ func Compress(tarFilePath, tarContentsPath string, excludes ...*regexp.Regexp) e
 
 		// Make the path inside the tar relative to the archive path if
 		// necessary.
+		//
+		// The default way this works is that we preserve the path between
+		// `tarFilePath` and `tarContentsPath` directories inside the archive.
+		// This might not work well if `tarFilePath` and `tarContentsPath`
+		// are on different levels in the file system (e.g. they don't have
+		// common parent directory).
+		// In such case we can disable `preserveRootDirStructure` flag which
+		// will make paths inside the archive relative to `tarContentsPath`.
+		dropPath := filepath.Dir(tarFilePath)
+		if !preserveRootDirStructure {
+			dropPath = tarContentsPath
+		}
 		header.Name = strings.TrimLeft(
-			strings.TrimPrefix(filePath, filepath.Dir(tarFilePath)),
+			strings.TrimPrefix(filePath, dropPath),
 			string(filepath.Separator),
 		)
 		header.Linkname = filepath.ToSlash(header.Linkname)
@@ -116,13 +141,19 @@ func Extract(tarFilePath, destinationPath string) error {
 		func(reader *tar.Reader, header *tar.Header) (stop bool, err error) {
 			switch header.Typeflag {
 			case tar.TypeDir:
-				targetDir := filepath.Join(destinationPath, header.Name)
+				targetDir, err := SanitizeArchivePath(destinationPath, header.Name)
+				if err != nil {
+					return false, fmt.Errorf("SanitizeArchivePath: %w", err)
+				}
 				logrus.Tracef("Creating directory %s", targetDir)
-				if err := os.Mkdir(targetDir, os.FileMode(0o755)); err != nil {
+				if err := os.MkdirAll(targetDir, os.FileMode(0o755)); err != nil {
 					return false, fmt.Errorf("create target directory: %w", err)
 				}
 			case tar.TypeSymlink:
-				targetFile := filepath.Join(destinationPath, header.Name)
+				targetFile, err := SanitizeArchivePath(destinationPath, header.Name)
+				if err != nil {
+					return false, fmt.Errorf("SanitizeArchivePath: %w", err)
+				}
 				logrus.Tracef(
 					"Creating symlink %s -> %s", header.Linkname, targetFile,
 				)
@@ -134,8 +165,13 @@ func Extract(tarFilePath, destinationPath string) error {
 				if err := os.Symlink(header.Linkname, targetFile); err != nil {
 					return false, fmt.Errorf("create symlink: %w", err)
 				}
-			case tar.TypeReg, tar.TypeRegA:
-				targetFile := filepath.Join(destinationPath, header.Name)
+				// tar.TypeRegA has been deprecated since Go 1.11
+				// should we just remove?
+			case tar.TypeReg:
+				targetFile, err := SanitizeArchivePath(destinationPath, header.Name)
+				if err != nil {
+					return false, fmt.Errorf("SanitizeArchivePath: %w", err)
+				}
 				logrus.Tracef("Creating file %s", targetFile)
 
 				if err := os.MkdirAll(
@@ -167,6 +203,17 @@ func Extract(tarFilePath, destinationPath string) error {
 			return false, nil
 		},
 	)
+}
+
+// Sanitize archive file pathing from "G305: Zip Slip vulnerability"
+// https://security.snyk.io/research/zip-slip-vulnerability
+func SanitizeArchivePath(d, t string) (v string, err error) {
+	v = filepath.Join(d, t)
+	if strings.HasPrefix(v, filepath.Clean(d)) {
+		return v, nil
+	}
+
+	return "", fmt.Errorf("%s: %s", "content filepath is tainted", t)
 }
 
 // ReadFileFromGzippedTar opens a tarball and reads contents of a file inside.
