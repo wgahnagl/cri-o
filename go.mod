@@ -28,7 +28,7 @@ require (
 	github.com/cpuguy83/go-md2man v1.0.10
 	github.com/creack/pty v1.1.18
 	github.com/cri-o/ocicni v0.4.0
-	github.com/cyphar/filepath-securejoin v0.2.3
+	github.com/cyphar/filepath-securejoin v0.2.4
 	github.com/docker/distribution v2.8.1+incompatible
 	github.com/docker/go-units v0.4.0
 	github.com/emicklei/go-restful v2.16.0+incompatible

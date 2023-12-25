@@ -817,7 +817,7 @@ github.com/cri-o/ocicni/pkg/ocicni
 # github.com/cyberphone/json-canonicalization v0.0.0-20210823021906-dc406ceaf94b
 ## explicit
 github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer
-# github.com/cyphar/filepath-securejoin v0.2.3
+# github.com/cyphar/filepath-securejoin v0.2.4
 ## explicit; go 1.13
 github.com/cyphar/filepath-securejoin
 # github.com/davecgh/go-spew v1.1.1
