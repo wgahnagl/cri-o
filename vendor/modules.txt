@@ -808,8 +808,8 @@ github.com/cpuguy83/go-md2man/md2man
 # github.com/cpuguy83/go-md2man/v2 v2.0.2
 ## explicit; go 1.11
 github.com/cpuguy83/go-md2man/v2/md2man
-# github.com/creack/pty v1.1.18
-## explicit; go 1.13
+# github.com/creack/pty v1.1.24
+## explicit; go 1.18
 github.com/creack/pty
 # github.com/cri-o/ocicni v0.4.0
 ## explicit; go 1.17
@@ -1222,8 +1222,8 @@ github.com/google/gnostic/extensions
 github.com/google/gnostic/jsonschema
 github.com/google/gnostic/openapiv2
 github.com/google/gnostic/openapiv3
-# github.com/google/go-cmp v0.5.8
-## explicit; go 1.13
+# github.com/google/go-cmp v0.7.0
+## explicit; go 1.21
 github.com/google/go-cmp/cmp
 github.com/google/go-cmp/cmp/cmpopts
 github.com/google/go-cmp/cmp/internal/diff
@@ -1286,7 +1286,10 @@ github.com/google/pprof/profile
 # github.com/google/renameio v1.0.1
 ## explicit; go 1.13
 github.com/google/renameio
-github.com/google/renameio/maybe
+# github.com/google/renameio/v2 v2.0.2
+## explicit; go 1.25
+github.com/google/renameio/v2
+github.com/google/renameio/v2/maybe
 # github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 ## explicit; go 1.13
 github.com/google/shlex
@@ -1713,14 +1716,6 @@ github.com/pelletier/go-toml/v2/internal/tracker
 # github.com/peterbourgon/diskv v2.0.1+incompatible
 ## explicit
 github.com/peterbourgon/diskv
-# github.com/pkg/diff v0.0.0-20210226163009-20ebb0f2a09e
-## explicit; go 1.15
-github.com/pkg/diff
-github.com/pkg/diff/ctxt
-github.com/pkg/diff/edit
-github.com/pkg/diff/intern
-github.com/pkg/diff/myers
-github.com/pkg/diff/write
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
@@ -1768,6 +1763,9 @@ github.com/rcrowley/go-metrics
 # github.com/rivo/uniseg v0.2.0
 ## explicit; go 1.12
 github.com/rivo/uniseg
+# github.com/rogpeppe/go-internal v1.14.1
+## explicit; go 1.23
+github.com/rogpeppe/go-internal/diff
 # github.com/russross/blackfriday v1.6.0
 ## explicit; go 1.13
 github.com/russross/blackfriday
@@ -2314,8 +2312,8 @@ go.uber.org/zap/internal/ztest
 go.uber.org/zap/zapcore
 go.uber.org/zap/zapgrpc
 go.uber.org/zap/zaptest
-# golang.org/x/crypto v0.0.0-20220525230936-793ad666bf5e
-## explicit; go 1.17
+# golang.org/x/crypto v0.43.0
+## explicit; go 1.24.0
 golang.org/x/crypto/bcrypt
 golang.org/x/crypto/blake2b
 golang.org/x/crypto/blowfish
@@ -2324,10 +2322,9 @@ golang.org/x/crypto/chacha20
 golang.org/x/crypto/cryptobyte
 golang.org/x/crypto/cryptobyte/asn1
 golang.org/x/crypto/curve25519
-golang.org/x/crypto/curve25519/internal/field
 golang.org/x/crypto/ed25519
+golang.org/x/crypto/internal/alias
 golang.org/x/crypto/internal/poly1305
-golang.org/x/crypto/internal/subtle
 golang.org/x/crypto/nacl/secretbox
 golang.org/x/crypto/ocsp
 golang.org/x/crypto/openpgp
@@ -2348,15 +2345,15 @@ golang.org/x/crypto/ssh/agent
 golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
 golang.org/x/crypto/ssh/knownhosts
 golang.org/x/crypto/ssh/terminal
-# golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4
-## explicit; go 1.17
+# golang.org/x/mod v0.29.0
+## explicit; go 1.24.0
 golang.org/x/mod/internal/lazyregexp
 golang.org/x/mod/modfile
 golang.org/x/mod/module
 golang.org/x/mod/semver
 golang.org/x/mod/sumdb/note
-# golang.org/x/net v0.0.0-20220722155237-a158d28d115b
-## explicit; go 1.17
+# golang.org/x/net v0.46.0
+## explicit; go 1.24.0
 golang.org/x/net/context
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/html
@@ -2366,6 +2363,7 @@ golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
 golang.org/x/net/idna
+golang.org/x/net/internal/httpcommon
 golang.org/x/net/internal/socks
 golang.org/x/net/internal/timeseries
 golang.org/x/net/proxy
@@ -2380,24 +2378,23 @@ golang.org/x/oauth2/google/internal/externalaccount
 golang.org/x/oauth2/internal
 golang.org/x/oauth2/jws
 golang.org/x/oauth2/jwt
-# golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
-## explicit
+# golang.org/x/sync v0.17.0
+## explicit; go 1.24.0
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
-## explicit; go 1.17
+# golang.org/x/sys v0.42.0
+## explicit; go 1.25.0
 golang.org/x/sys/cpu
 golang.org/x/sys/execabs
-golang.org/x/sys/internal/unsafeheader
 golang.org/x/sys/plan9
 golang.org/x/sys/unix
 golang.org/x/sys/windows
 golang.org/x/sys/windows/registry
-# golang.org/x/term v0.0.0-20220526004731-065cf7ba2467
-## explicit; go 1.17
+# golang.org/x/term v0.41.0
+## explicit; go 1.25.0
 golang.org/x/term
-# golang.org/x/text v0.3.7
-## explicit; go 1.17
+# golang.org/x/text v0.30.0
+## explicit; go 1.24.0
 golang.org/x/text/cases
 golang.org/x/text/encoding
 golang.org/x/text/encoding/charmap
@@ -2423,21 +2420,24 @@ golang.org/x/text/unicode/norm
 # golang.org/x/time v0.0.0-20220411224347-583f2d630306
 ## explicit
 golang.org/x/time/rate
-# golang.org/x/tools v0.1.12
-## explicit; go 1.18
+# golang.org/x/tools v0.38.0
+## explicit; go 1.24.0
 golang.org/x/tools/go/ast/astutil
+golang.org/x/tools/go/ast/edge
 golang.org/x/tools/go/ast/inspector
-golang.org/x/tools/go/vcs
 golang.org/x/tools/imports
 golang.org/x/tools/internal/event
 golang.org/x/tools/internal/event/core
 golang.org/x/tools/internal/event/keys
 golang.org/x/tools/internal/event/label
-golang.org/x/tools/internal/fastwalk
 golang.org/x/tools/internal/gocommand
 golang.org/x/tools/internal/gopathwalk
 golang.org/x/tools/internal/imports
-golang.org/x/tools/internal/typeparams
+golang.org/x/tools/internal/modindex
+golang.org/x/tools/internal/stdlib
+# golang.org/x/tools/go/vcs v0.1.0-deprecated
+## explicit; go 1.19
+golang.org/x/tools/go/vcs
 # golang.org/x/xerrors v0.0.0-20220609144429-65e65417b02f
 ## explicit; go 1.17
 golang.org/x/xerrors
@@ -3159,14 +3159,15 @@ knative.dev/pkg/changeset
 knative.dev/pkg/logging
 knative.dev/pkg/logging/logkey
 knative.dev/pkg/pool
-# mvdan.cc/editorconfig v0.2.0
-## explicit; go 1.15
+# mvdan.cc/editorconfig v0.3.0
+## explicit; go 1.21
 mvdan.cc/editorconfig
-# mvdan.cc/sh/v3 v3.5.1
-## explicit; go 1.17
+# mvdan.cc/sh/v3 v3.13.1
+## explicit; go 1.25.0
 mvdan.cc/sh/v3/cmd/shfmt
 mvdan.cc/sh/v3/fileutil
 mvdan.cc/sh/v3/syntax
+mvdan.cc/sh/v3/syntax/typedjson
 # oras.land/oras-go v1.2.0
 ## explicit; go 1.17
 oras.land/oras-go/pkg/artifact
